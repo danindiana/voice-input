@@ -24,9 +24,10 @@ Confirmed working output:
 ## Usage
 
 ```bash
-voice-input --print   # transcribe → stdout
-voice-input --clip    # transcribe → clipboard
-voice-input           # transcribe → xdotool types into active window
+voice-input --print             # transcribe → stdout (animated fancy mode)
+voice-input --print --no-fancy  # transcribe → stdout (plain text)
+voice-input --clip              # transcribe → clipboard
+voice-input                     # transcribe → xdotool types into active window
 ```
 
 Press Enter to stop early. Auto-stops at 65s. Low beep = start, high beep = stop.
@@ -73,6 +74,8 @@ pactl set-source-volume alsa_input.usb-UC03_UC03-00.mono-fallback 100%
 | WAV corruption | Empty/broken WAV file | Killing `parec\|sox` pipeline left incomplete WAV header | Write raw to file, convert after |
 | Wrong default source | Silent recordings | Default source was motherboard loopback monitor | `pactl set-default-source` + WirePlumber config |
 | Enter not stopping | Script hung 65s | `read` exits on non-TTY stdin | `read < /dev/tty` + USR1 signal timer |
+| Fancy animation broken | Frames print sequentially, no in-place overwrite | `\033[s/u` cursor save/restore not supported in terminal | Switch to `\033[{N}D` cursor-left |
+| `--no-fancy` output silent | `--print --no-fancy` produced nothing | `print)` case missing from output dispatch | Restored `print)` case in voice-input.sh |
 
 ## Next Steps
 

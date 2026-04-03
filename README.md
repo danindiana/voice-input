@@ -22,9 +22,10 @@ chmod +x voice-input.sh
 sudo ln -sf "$(pwd)/voice-input.sh" /usr/local/bin/voice-input
 
 # 5. Run
-voice-input --print    # transcribe → stdout
-voice-input --clip     # transcribe → clipboard (Ctrl+Shift+V to paste)
-voice-input            # transcribe → xdotool types into active window
+voice-input --print             # transcribe → stdout (animated)
+voice-input --print --no-fancy  # transcribe → stdout (plain)
+voice-input --clip             # transcribe → clipboard (Ctrl+Shift+V to paste)
+voice-input                    # transcribe → xdotool types into active window
 ```
 
 Press **Enter** to stop recording early. Auto-stops at 65 seconds.  
@@ -86,6 +87,28 @@ pactl list sources short
 | `transcribe.py` | Loads faster-whisper medium model on GPU, transcribes WAV to stdout |
 | `requirements.txt` | Frozen Python dependencies |
 | `STATUS.md` | Debug history, build notes, lessons learned |
+
+---
+
+## Fancy Animated Output
+
+By default, `--print` mode uses an animated word-by-word renderer powered by faster-whisper's `word_timestamps=True`:
+
+- Each word prints a placeholder (`___`) as soon as the model starts yielding that segment
+- Scrambled characters cycle in-place (more frames = lower confidence)
+- Word snaps to final text, colored by confidence:
+  - **Bright white** — ≥ 92% confidence
+  - Normal — ≥ 75%
+  - **Yellow** — ≥ 50%
+  - **Red** — < 50%
+- Dim superscript timestamp beside each word: `better¹²·⁹ˢ`
+
+Pass `--no-fancy` to get plain text output instead:
+```bash
+voice-input --print --no-fancy
+```
+
+**Implementation note:** the animation uses `\033[{N}D` (cursor-left by N columns) to overwrite in place. `\033[s/u` (cursor save/restore) fails silently in many terminals (tmux, some VTE-based), causing frames to print sequentially instead of in-place.
 
 ---
 

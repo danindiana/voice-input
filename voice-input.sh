@@ -26,8 +26,14 @@ TMPWAV=$(mktemp /tmp/voice-XXXXXX.wav)
 MAX_SECONDS=65
 
 MODE="type"   # type | clip | print
-if [[ "${1:-}" == "--clip" ]];  then MODE="clip";  fi
-if [[ "${1:-}" == "--print" ]]; then MODE="print"; fi
+FANCY="--fancy"   # pass --fancy to transcribe.py for animated output; --no-fancy to disable
+for arg in "$@"; do
+    case "$arg" in
+        --clip)     MODE="clip"  ;;
+        --print)    MODE="print" ;;
+        --no-fancy) FANCY=""     ;;
+    esac
+done
 
 cleanup() { rm -f "$TMPRAW" "$TMPWAV"; }
 trap cleanup EXIT
@@ -76,7 +82,7 @@ sox -t raw -r 32000 -e signed -b 16 -c 1 "$TMPRAW" "$TMPWAV"
 echo "[voice-input] Transcribing..." >&2
 
 # --- Transcribe ---
-TEXT=$("$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" 2>/dev/null)
+TEXT=$("$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" $FANCY 2>/dev/null)
 
 if [[ -z "$TEXT" ]]; then
     echo "[voice-input] No speech detected." >&2

@@ -1,27 +1,110 @@
 #!/usr/bin/env python3
 """
 Transcribe a WAV file using faster-whisper on GPU.
-Usage: transcribe.py <wav_file>
-Prints transcribed text to stdout.
+
+Usage:
+    transcribe.py <wav_file>           # plain text to stdout
+    transcribe.py <wav_file> --fancy   # animated word-by-word with probability render
 """
 import sys
+import time
+import random
+import string
+
 from faster_whisper import WhisperModel
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: transcribe.py <wav_file>", file=sys.stderr)
+# Characters used during scramble animation
+SCRAMBLE = string.ascii_lowercase + string.digits + "!?#@$%&*"
+
+# Unicode superscript map for timestamps
+_SUP_MAP = str.maketrans("0123456789.", "⁰¹²³⁴⁵⁶⁷⁸⁹·")
+
+def sup_time(t: float) -> str:
+    """Format a timestamp as dim superscript: e.g. ¹²·³ˢ"""
+    return f"\033[2m{f'{t:.1f}ˢ'.translate(_SUP_MAP)}\033[0m"
+
+def word_color(prob: float) -> str:
+    if prob >= 0.92:
+        return "\033[97m"    # bright white — high confidence
+    elif prob >= 0.75:
+        return "\033[0m"     # normal
+    elif prob >= 0.50:
+        return "\033[33m"    # yellow — uncertain
+    else:
+        return "\033[31m"    # red — low confidence
+
+def animate_word(word: str, prob: float, start: float) -> None:
+    """
+    Print a single word with scramble-to-resolve animation.
+    Uses cursor save/restore (\033[s / \033[u) to overwrite in place.
+    Number of scramble frames scales with (1 - probability).
+    """
+    frames  = max(1, int((1.0 - prob) * 10))
+    ts      = sup_time(start)
+    color   = word_color(prob)
+    width   = len(word)
+
+    for _ in range(frames):
+        scrambled = ''.join(random.choice(SCRAMBLE) for _ in range(width))
+        # Save cursor, write scrambled + timestamp, restore cursor
+        sys.stdout.write(f"\033[s\033[2m{scrambled}\033[0m{ts} \033[u")
+        sys.stdout.flush()
+        time.sleep(0.035)
+
+    # Final: overwrite scrambled with real word, advance cursor past it
+    sys.stdout.write(f"{color}{word}\033[0m{ts} ")
+    sys.stdout.flush()
+
+def fancy_transcribe(wav_path: str, model: WhisperModel) -> None:
+    """Stream words to terminal with per-word probability animation."""
+    segments, _ = model.transcribe(
+        wav_path,
+        beam_size=5,
+        language="en",
+        word_timestamps=True,
+    )
+
+    col = 0  # track approximate column for soft line wrapping
+    for segment in segments:
+        for word in (segment.words or []):
+            w = word.word.strip()
+            if not w:
+                continue
+
+            # Soft wrap at ~100 cols
+            if col + len(w) + 12 > 100:
+                sys.stdout.write("\n")
+                col = 0
+
+            # Print placeholder underscores at word width so line doesn't jump
+            ts     = sup_time(word.start)
+            marker = f"\033[2m{'_' * len(w)}\033[0m{ts} "
+            sys.stdout.write(marker)
+            sys.stdout.flush()
+
+            animate_word(w, word.probability, word.start)
+            col += len(w) + len(f"{word.start:.1f}ˢ") + 2
+
+    sys.stdout.write("\n")
+
+def plain_transcribe(wav_path: str, model: WhisperModel) -> None:
+    segments, _ = model.transcribe(wav_path, beam_size=5, language="en")
+    print(" ".join(seg.text.strip() for seg in segments))
+
+def main() -> None:
+    fancy   = "--fancy" in sys.argv
+    args    = [a for a in sys.argv[1:] if not a.startswith("--")]
+
+    if not args:
+        print("Usage: transcribe.py <wav_file> [--fancy]", file=sys.stderr)
         sys.exit(1)
 
-    wav_path = sys.argv[1]
-
-    # Use GPU (cuda), float16, medium model — fast + accurate
-    # Model downloads to ~/.cache/huggingface on first run
     model = WhisperModel("medium", device="cuda", compute_type="float16")
 
-    segments, info = model.transcribe(wav_path, beam_size=5, language="en")
-
-    text = " ".join(seg.text.strip() for seg in segments)
-    print(text)
+    if fancy:
+        fancy_transcribe(args[0], model)
+    else:
+        plain_transcribe(args[0], model)
 
 if __name__ == "__main__":
     main()

@@ -82,16 +82,28 @@ sox -t raw -r 32000 -e signed -b 16 -c 1 "$TMPRAW" "$TMPWAV"
 echo "[voice-input] Transcribing..." >&2
 
 # --- Transcribe ---
-TEXT=$("$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" $FANCY 2>/dev/null)
+# Fancy mode streams animation directly to terminal (can't be captured).
+# Plain mode captures text for clipboard/type dispatch.
+# For clip/type with fancy: run fancy for display, then plain for the text.
 
-if [[ -z "$TEXT" ]]; then
+if [[ -n "$FANCY" ]]; then
+    # Stream animation live to terminal
+    "$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" --fancy 2>/dev/null
+    if [[ "$MODE" == "print" ]]; then
+        exit 0
+    fi
+    # clip/type also need plain text
+    TEXT=$("$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" 2>/dev/null)
+else
+    TEXT=$("$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" 2>/dev/null)
+fi
+
+if [[ -z "${TEXT:-}" ]]; then
     echo "[voice-input] No speech detected." >&2
     exit 0
 fi
 
-echo "[voice-input] Got: $TEXT" >&2
-
-# --- Output ---
+# --- Output (clip / type only — print already handled above) ---
 case "$MODE" in
     type)
         sleep 0.1
@@ -100,8 +112,5 @@ case "$MODE" in
     clip)
         echo -n "$TEXT" | xclip -selection clipboard
         echo "[voice-input] Copied to clipboard." >&2
-        ;;
-    print)
-        echo "$TEXT"
         ;;
 esac

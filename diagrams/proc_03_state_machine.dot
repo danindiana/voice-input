@@ -1,0 +1,28 @@
+
+digraph {
+    bgcolor="#0a0a1a" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=11 style=filled shape=oval penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    IDLE   [label="IDLE" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    REC    [label="RECORDING" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    STOP   [label="STOPPING" fillcolor="#1a0a00" color="#ff6600" fontcolor="#ff6600"]
+    CONV   [label="CONVERTING
+(sox)" fillcolor="#0a001a" color="#9900ff" fontcolor="#9900ff"]
+    INFER  [label="INFERRING
+(GPU)" fillcolor="#1a0020" color="#ff00ff" fontcolor="#ff00ff"]
+    OUT    [label="OUTPUT" fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+    DONE   [label="DONE / EXIT" fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+
+    IDLE  -> REC   [label="voice-input runs
+parec + timer started
+beep(480Hz)" color="#00ffff"]
+    REC   -> STOP  [label="Enter pressed
+OR 65s USR1" color="#ff6600"]
+    STOP  -> CONV  [label="parec killed
+timer killed
+beep(880Hz)" color="#9900ff"]
+    CONV  -> INFER [label="WAV written" color="#ff00ff"]
+    INFER -> OUT   [label="transcript ready" color="#ccff00"]
+    OUT   -> DONE  [label="type / clip / print" color="#555555"]
+}

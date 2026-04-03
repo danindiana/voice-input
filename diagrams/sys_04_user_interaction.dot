@@ -1,0 +1,27 @@
+
+digraph {
+    bgcolor="#0f0f0f" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    start  [label="Run
+voice-input" shape=oval fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    beep1  [label="Low beep
+(recording starts)" shape=box fillcolor="#0d0d0d" color="#00ffff" fontcolor="#00ffff"]
+    speak  [label="User speaks" shape=parallelogram fillcolor="#0d0d0d" color="#ffff00" fontcolor="#ffff00"]
+    enter  [label="Press Enter
+or 65s timeout" shape=diamond fillcolor="#0d0d0d" color="#ff6600" fontcolor="#ff6600"]
+    beep2  [label="High beep
+(stopped)" shape=box fillcolor="#0d0d0d" color="#ff00ff" fontcolor="#ff00ff"]
+    wait   [label="Transcribing...
+(GPU inference)" shape=box fillcolor="#0d0d0d" color="#ff00ff" fontcolor="#ff1493"]
+    result [label="Text output
+print / clip / type" shape=oval fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+
+    start -> beep1 [color="#39ff14"]
+    beep1 -> speak [color="#00ffff"]
+    speak -> enter [color="#ffff00"]
+    enter -> beep2 [color="#ff6600"]
+    beep2 -> wait  [color="#ff00ff"]
+    wait  -> result [color="#ccff00"]
+}

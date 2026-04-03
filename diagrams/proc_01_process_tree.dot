@@ -1,0 +1,28 @@
+
+digraph {
+    bgcolor="#0d0d0d" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    shell  [label="zsh / bash
+(user's shell)" fillcolor="#0a000a" color="#9900ff" fontcolor="#9900ff"]
+    main   [label="voice-input.sh
+(MAIN_PID=$$)" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    parec  [label="parec
+(PAREC_PID)
+writes raw PCM" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    timer  [label="( sleep 65; kill... )
+(TIMER_PID)
+subshell background" fillcolor="#1a0a00" color="#ff6600" fontcolor="#ff6600"]
+    beep   [label="paplay
+(background &)
+beep tones" fillcolor="#0a0a0a" color="#00ffcc" fontcolor="#00ffcc"]
+    py     [label="python3 transcribe.py
+(inline, waits)" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+
+    shell -> main  [color="#9900ff"]
+    main  -> parec [label="& (background)" color="#39ff14"]
+    main  -> timer [label="& (background)" color="#ff6600"]
+    main  -> beep  [label="& (fire-forget)" color="#00ffcc"]
+    main  -> py    [label="waits for exit" color="#ff00ff"]
+}

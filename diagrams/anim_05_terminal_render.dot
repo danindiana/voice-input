@@ -1,0 +1,29 @@
+
+digraph {
+    bgcolor="#080818" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    seg   [label="Segment arrives
+from generator
+(streaming — not waiting for all)" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    wrap  [label="col + len(w) + 12 > 100?
+→ \n + reset col=0" shape=diamond fillcolor="#0d0d0d" color="#ff6600" fontcolor="#ff6600"]
+    ph    [label="write placeholder:
+\033[2m____\033[0m¹²·³ˢ " fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+    anim  [label="animate_word(w, prob, start)
+→ scramble frames
+→ cursor-left
+→ snap to real word" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    adv   [label="col += len(w) + len(ts_raw) + 1" fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+    nl    [label="sys.stdout.write('\n')
+at end of all segments" fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+
+    seg  -> wrap [color="#00ffff"]
+    wrap -> ph   [label="no wrap" color="#555555"]
+    wrap -> ph   [label="wrap: \n first" color="#ff6600"]
+    ph   -> anim [color="#ff00ff"]
+    anim -> adv  [color="#ccff00"]
+    adv  -> seg  [label="next word" color="#00ffff"]
+    adv  -> nl   [label="all done" color="#555555"]
+}

@@ -1,0 +1,26 @@
+
+digraph {
+    bgcolor="#0f0f0f" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    text  [label="TEXT variable" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    xcl   [label="echo -n TEXT
+| xclip -selection clipboard" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    cb    [label="X11 CLIPBOARD
+buffer" shape=cylinder fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+    msg   [label="'Copied to clipboard.'
+→ stderr" fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+
+    paste [label="Ctrl+Shift+V
+(terminal paste)
+or Ctrl+V (other apps)" shape=parallelogram fillcolor="#001520" color="#00ffcc" fontcolor="#00ffcc"]
+    dest  [label="Target app
+(Claude Code, editor, etc.)" shape=parallelogram fillcolor="#001520" color="#00aaff" fontcolor="#00aaff"]
+
+    text -> xcl   [color="#00ffff"]
+    xcl  -> cb    [label="write" color="#39ff14"]
+    xcl  -> msg   [color="#555555"]
+    cb   -> paste [label="user pastes" color="#00ffcc"]
+    paste -> dest [color="#00aaff"]
+}

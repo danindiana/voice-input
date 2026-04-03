@@ -1,0 +1,28 @@
+
+digraph {
+    bgcolor="#0d0d0d" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled shape=oval penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    WAIT    [label="WAITING
+for model" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    PH      [label="PLACEHOLDER
+___ printed" fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+    SCRAM   [label="SCRAMBLING
+frames = int((1-prob)×10)" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    SNAP    [label="SNAPPED
+real word printed" fillcolor="#001500" color="#39ff14" fontcolor="#39ff14"]
+    ADV     [label="ADVANCE
+cursor left behind
+to next word" fillcolor="#001520" color="#00ffcc" fontcolor="#00ffcc"]
+
+    WAIT  -> PH    [label="word yielded
+from generator" color="#00ffff"]
+    PH    -> SCRAM [label="animate_word()" color="#ff00ff"]
+    SCRAM -> SCRAM [label="next frame
+(0.035s sleep)" color="#ff00ff"]
+    SCRAM -> SNAP  [label="frames exhausted" color="#39ff14"]
+    SNAP  -> ADV   [label="cursor stays
+past word" color="#00ffcc"]
+    ADV   -> WAIT  [label="next word" color="#00ffff"]
+}

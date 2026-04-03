@@ -1,0 +1,31 @@
+
+digraph {
+    bgcolor="#111827" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    calc  [label="frames = max(1, int((1 - prob) × 10))
+
+example:
+prob=0.95 → frames=0 → max → 1
+prob=0.50 → frames=5
+prob=0.10 → frames=9" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    back  [label="back = width + len(ts_raw) + 1
+(columns to step back)" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    loop  [label="for _ in range(frames):" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    rand  [label="scrambled = random chars
+(len == width)" fillcolor="#001a00" color="#ccff00" fontcolor="#ccff00"]
+    write [label="write: dim scrambled + ts + space
++ \033[backD  ← cursor left back cols" fillcolor="#001a00" color="#00ffcc" fontcolor="#00ffcc"]
+    sleep [label="sleep 0.035s" fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+    final [label="write: color + real_word + ts + space
+(no cursor left — advance normally)" fillcolor="#001500" color="#ffff00" fontcolor="#ffff00"]
+
+    calc  -> back  [color="#00ffff"]
+    back  -> loop  [color="#ff00ff"]
+    loop  -> rand  [color="#39ff14"]
+    rand  -> write [color="#ccff00"]
+    write -> sleep [color="#00ffcc"]
+    sleep -> loop  [label="next frame" color="#555555"]
+    loop  -> final [label="done" color="#ffff00"]
+}

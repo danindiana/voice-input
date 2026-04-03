@@ -1,0 +1,39 @@
+
+digraph {
+    bgcolor="#111827" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    subgraph cluster_hw {
+        bgcolor="#050515" color="#00aaff" label="Hardware" fontcolor="#00aaff" penwidth=2
+        uc03in  [label="UC03 In
+32kHz mono" fillcolor="#00001a" color="#00aaff" fontcolor="#00aaff"]
+        uc03out [label="UC03 Out
+stereo playback" fillcolor="#00001a" color="#00ffcc" fontcolor="#00ffcc"]
+        mobo    [label="Motherboard
+audio (ignored)" fillcolor="#00001a" color="#555555" fontcolor="#555555"]
+    }
+
+    subgraph cluster_pw {
+        bgcolor="#050515" color="#ff00ff" label="PipeWire Nodes" fontcolor="#ff00ff" penwidth=2
+        src  [label="source
+mono-fallback" fillcolor="#0a000a" color="#ff00ff" fontcolor="#ff00ff"]
+        sink [label="sink
+analog-stereo" fillcolor="#0a000a" color="#ff1493" fontcolor="#ff1493"]
+        mon  [label="monitor
+(loopback — disabled)" fillcolor="#0a000a" color="#555555" fontcolor="#555555"]
+    }
+
+    subgraph cluster_cfg {
+        bgcolor="#050515" color="#39ff14" label="WirePlumber Config" fontcolor="#39ff14" penwidth=2
+        wp [label="51-default-audio.conf
+default source: mono-fallback
+default sink: analog-stereo" fillcolor="#001500" color="#39ff14" fontcolor="#39ff14"]
+    }
+
+    uc03in  -> src  [color="#ff00ff"]
+    uc03out -> sink [color="#ff1493"]
+    mobo    -> mon  [color="#555555" style=dashed]
+    wp      -> src  [label="set default" color="#39ff14" style=dashed]
+    wp      -> sink [label="set default" color="#39ff14" style=dashed]
+}

@@ -1,0 +1,30 @@
+
+digraph {
+    bgcolor="#0f0f0f" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=11 style=filled penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    fn   [label="word_color(prob)" shape=box fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    p92  [label="prob ≥ 0.92
+\033[97m
+bright white" shape=box fillcolor="#1a1a1a" color="#e0e0e0" fontcolor="#e0e0e0"]
+    p75  [label="prob ≥ 0.75
+\033[0m
+normal" shape=box fillcolor="#0d0d0d" color="#e0e0e0" fontcolor="#e0e0e0"]
+    p50  [label="prob ≥ 0.50
+\033[33m
+yellow" shape=box fillcolor="#1a1a00" color="#ffff00" fontcolor="#ffff00"]
+    plo  [label="prob < 0.50
+\033[31m
+red" shape=box fillcolor="#1a0000" color="#ff2244" fontcolor="#ff2244"]
+
+    fn -> p92 [label="high confidence" color="#e0e0e0"]
+    fn -> p75 [label="medium-high" color="#e0e0e0"]
+    fn -> p50 [label="uncertain" color="#ffff00"]
+    fn -> plo [label="low confidence" color="#ff2244"]
+
+    frames [label="scramble frames:
+high prob → fewer (min 1)
+low prob  → more (max 9)" shape=note fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    frames -> fn [style=dashed color="#ff00ff" label="also affects"]
+}

@@ -1,0 +1,35 @@
+
+digraph {
+    bgcolor="#0d0d0d" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    args  [label="CLI args parsed
+--print / --clip / (default)" shape=parallelogram fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    fancy [label="FANCY flag
+--no-fancy?" shape=diamond fillcolor="#0d0d0d" color="#9900ff" fontcolor="#9900ff"]
+
+    f_print [label="fancy_transcribe()
+stream animation
+→ exit" shape=box fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    p_text  [label="plain_transcribe()
+TEXT=capture stdout" shape=box fillcolor="#001500" color="#39ff14" fontcolor="#39ff14"]
+
+    mode  [label="MODE switch
+type / clip / print" shape=diamond fillcolor="#0d0d0d" color="#ffff00" fontcolor="#ffff00"]
+    type_ [label="xdotool type
+--clearmodifiers
+--delay 20" shape=box fillcolor="#001520" color="#00aaff" fontcolor="#00aaff"]
+    clip  [label="echo -n | xclip
+-selection clipboard" shape=box fillcolor="#001520" color="#00ffcc" fontcolor="#00ffcc"]
+    print [label="echo TEXT
+→ stdout" shape=box fillcolor="#001520" color="#ccff00" fontcolor="#ccff00"]
+
+    args  -> fancy  [color="#00ffff"]
+    fancy -> f_print [label="fancy + print" color="#ff00ff"]
+    fancy -> p_text  [label="no-fancy OR clip/type" color="#39ff14"]
+    p_text -> mode   [color="#ffff00"]
+    mode  -> type_   [label="type" color="#00aaff"]
+    mode  -> clip    [label="clip" color="#00ffcc"]
+    mode  -> print   [label="print" color="#ccff00"]
+}

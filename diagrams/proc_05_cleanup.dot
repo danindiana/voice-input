@@ -1,0 +1,28 @@
+
+digraph {
+    bgcolor="#080818" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    trap_exit [label="trap cleanup EXIT
+(registered at startup)" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    fn_clean  [label="cleanup()
+  rm -f TMPRAW
+  rm -f TMPWAV" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+
+    normal [label="Normal exit
+(text output done)" shape=oval fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+    err    [label="set -euo pipefail
+(any error exits)" shape=oval fillcolor="#1a0000" color="#ff2244" fontcolor="#ff2244"]
+    sig    [label="SIGINT / SIGTERM
+(Ctrl+C)" shape=oval fillcolor="#1a0a00" color="#ff6600" fontcolor="#ff6600"]
+
+    cleanup_run [label="cleanup() runs
+→ temp files deleted" shape=box fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+
+    normal -> cleanup_run [color="#ccff00"]
+    err    -> cleanup_run [color="#ff2244"]
+    sig    -> cleanup_run [color="#ff6600"]
+    trap_exit -> fn_clean [label="registered to" color="#00ffff" style=dashed]
+    fn_clean  -> cleanup_run [label="executes" color="#39ff14" style=dashed]
+}

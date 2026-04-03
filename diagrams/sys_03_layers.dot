@@ -1,0 +1,26 @@
+
+digraph {
+    bgcolor="#0a0a1a" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5 color="#555555" style=dashed]
+    rankdir=BT
+
+    hw  [label="Hardware Layer
+UC03 USB · NVIDIA RTX 3060/3080" fillcolor="#0a0015" color="#9900ff" fontcolor="#9900ff"]
+    os  [label="OS / Kernel Layer
+ALSA · PipeWire · CUDA Driver" fillcolor="#00000f" color="#00aaff" fontcolor="#00aaff"]
+    rt  [label="Runtime Layer
+Bash · Python 3.13 · LD_LIBRARY_PATH" fillcolor="#001020" color="#00ffff" fontcolor="#00ffff"]
+    ml  [label="ML Layer
+faster-whisper · ctranslate2 · Whisper medium" fillcolor="#0a0020" color="#ff00ff" fontcolor="#ff00ff"]
+    app [label="Application Layer
+voice-input.sh · transcribe.py" fillcolor="#001500" color="#39ff14" fontcolor="#39ff14"]
+    ux  [label="UX Layer
+Terminal · xdotool · xclip · Beep feedback" fillcolor="#150000" color="#ff6600" fontcolor="#ff6600"]
+
+    hw -> os  [color="#9900ff"]
+    os -> rt  [color="#00aaff"]
+    rt -> ml  [color="#00ffff"]
+    ml -> app [color="#ff00ff"]
+    app -> ux [color="#39ff14"]
+}

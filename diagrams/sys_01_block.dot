@@ -1,0 +1,23 @@
+
+digraph {
+    bgcolor="#0d0d0d" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=11 style=filled shape=box penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5 color="#555555"]
+    rankdir=LR
+
+    UC03   [label="UC03 USB
+Headset" fillcolor="#1a1a2e" fontcolor="#00ffff" color="#00ffff"]
+    script [label="voice-input.sh" fillcolor="#1a1a2e" fontcolor="#39ff14" color="#39ff14"]
+    py     [label="transcribe.py" fillcolor="#1a1a2e" fontcolor="#ff00ff" color="#ff00ff"]
+    gpu    [label="NVIDIA GPU
+(faster-whisper)" fillcolor="#1a1a2e" fontcolor="#ffff00" color="#ffff00"]
+    out    [label="Output
+type / clip / print" fillcolor="#1a1a2e" fontcolor="#ff6600" color="#ff6600"]
+
+    UC03   -> script [label="32kHz PCM" color="#00ffff"]
+    script -> py     [label="WAV file" color="#39ff14"]
+    py     -> gpu    [label="float16 inference" color="#ff00ff"]
+    gpu    -> py     [label="segments + words" color="#ffff00"]
+    py     -> script [label="transcript" color="#ff00ff"]
+    script -> out    [label="text" color="#ff6600"]
+}

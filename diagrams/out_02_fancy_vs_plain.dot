@@ -1,0 +1,31 @@
+
+digraph {
+    bgcolor="#111827" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    subgraph cluster_fancy {
+        bgcolor="#050515" color="#ff00ff" label="fancy mode (default)" fontcolor="#ff00ff" penwidth=2
+        fw_f  [label="word_timestamps=True" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+        anim  [label="animate_word()
+scramble → resolve
++ confidence color
++ dim timestamp" fillcolor="#0a001a" color="#ff1493" fontcolor="#ff1493"]
+        stream [label="streams live to tty
+(no capture into $())" fillcolor="#0a001a" color="#9900ff" fontcolor="#9900ff"]
+    }
+
+    subgraph cluster_plain {
+        bgcolor="#051505" color="#39ff14" label="--no-fancy mode" fontcolor="#39ff14" penwidth=2
+        fw_p  [label="word_timestamps=False
+(faster)" fillcolor="#001500" color="#39ff14" fontcolor="#39ff14"]
+        join  [label="' '.join(seg.text)" fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+        cap   [label="captured into TEXT
+for dispatch" fillcolor="#001500" color="#00ffcc" fontcolor="#00ffcc"]
+    }
+
+    fw_f -> anim   [color="#ff00ff"]
+    anim -> stream [color="#ff1493"]
+    fw_p -> join   [color="#39ff14"]
+    join -> cap    [color="#ccff00"]
+}

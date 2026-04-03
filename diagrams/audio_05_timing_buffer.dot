@@ -1,0 +1,31 @@
+
+digraph {
+    bgcolor="#080818" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    t0   [label="t=0s
+voice-input runs
+parec starts" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    rec  [label="t=0..65s
+Recording window
+32kHz × 2 bytes × N sec
+= up to 4.0 MB raw" fillcolor="#001520" color="#00ffcc" fontcolor="#00ffcc"]
+    ent  [label="Enter pressed
+(any time 0..65s)" shape=diamond fillcolor="#0d0d0d" color="#ff6600" fontcolor="#ff6600"]
+    t65  [label="t=65s
+Timer fires USR1
+parec killed" fillcolor="#0d0d0d" color="#ff2244" fontcolor="#ff2244"]
+    conv [label="sox conversion
+~10-50ms" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    infer [label="GPU inference
+1-5s typical
+(model already loaded)" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+
+    t0 -> rec   [color="#00ffff"]
+    rec -> ent  [label="if user presses Enter" color="#ff6600"]
+    rec -> t65  [label="if no input" color="#ff2244"]
+    ent -> conv [color="#39ff14"]
+    t65 -> conv [color="#39ff14"]
+    conv -> infer [color="#ff00ff"]
+}

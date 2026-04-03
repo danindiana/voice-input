@@ -1,0 +1,41 @@
+
+digraph {
+    bgcolor="#080818" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=9 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=8 penwidth=1.5]
+    rankdir=LR
+
+    UC03  [label="UC03
+Mic" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    parec [label="parec
+32kHz" fillcolor="#001520" color="#00aaff" fontcolor="#00aaff"]
+    raw   [label=".raw
+PCM" shape=cylinder fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+    sox   [label="sox
+convert" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    wav   [label=".wav" shape=cylinder fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+    fw    [label="faster-
+whisper
+GPU" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+
+    fancy_out [label="animated
+terminal" fillcolor="#0a001a" color="#ff1493" fontcolor="#ff1493"]
+    plain_out [label="TEXT
+string" fillcolor="#001500" color="#39ff14" fontcolor="#39ff14"]
+
+    type_ [label="xdotool
+type" fillcolor="#001520" color="#ffff00" fontcolor="#ffff00"]
+    clip  [label="xclip
+clipboard" fillcolor="#001520" color="#00ffcc" fontcolor="#00ffcc"]
+    print [label="stdout
+print" fillcolor="#001520" color="#ccff00" fontcolor="#ccff00"]
+
+    UC03 -> parec -> raw -> sox -> wav -> fw
+    fw -> fancy_out [label="--fancy" color="#ff1493"]
+    fw -> plain_out [label="--no-fancy" color="#39ff14"]
+    plain_out -> type_  [label="(default)" color="#ffff00"]
+    plain_out -> clip   [label="--clip" color="#00ffcc"]
+    plain_out -> print  [label="--print
+--no-fancy" color="#ccff00"]
+    fancy_out -> print  [label="--print" color="#ff00ff"]
+}

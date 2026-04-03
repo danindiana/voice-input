@@ -1,0 +1,35 @@
+
+digraph {
+    bgcolor="#0a0a1a" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+    rankdir=LR
+
+    uc03  [label="UC03 native
+32000 Hz" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    pw32  [label="PipeWire
+32kHz passthrough" fillcolor="#001520" color="#00ffcc" fontcolor="#00ffcc"]
+    parec [label="parec
+--rate=32000" fillcolor="#001520" color="#39ff14" fontcolor="#39ff14"]
+    sox   [label="sox convert
+-r 32000 -e signed
+-b 16 -c 1" fillcolor="#001520" color="#ccff00" fontcolor="#ccff00"]
+    wav   [label="WAV
+32kHz mono s16le" fillcolor="#001520" color="#ffff00" fontcolor="#ffff00"]
+    fw    [label="faster-whisper
+native 32kHz support
+(no internal resample)" fillcolor="#001520" color="#ff00ff" fontcolor="#ff00ff"]
+
+    uc03  -> pw32  [label="USB audio
+32kHz" color="#00ffff"]
+    pw32  -> parec [label="PCM stream" color="#00ffcc"]
+    parec -> sox   [label="raw s16le
+32kHz" color="#39ff14"]
+    sox   -> wav   [label="write" color="#ccff00"]
+    wav   -> fw    [label="transcribe" color="#ffff00"]
+
+    bad [label="WRONG: --rate=16000
+→ PipeWire resampler
+→ near-silence (RMS ~0.0005)" shape=note fillcolor="#1a0000" color="#ff2244" fontcolor="#ff2244"]
+    bad -> parec [label="avoided" color="#ff2244" style=dashed]
+}

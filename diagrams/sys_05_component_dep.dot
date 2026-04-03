@@ -1,0 +1,28 @@
+
+digraph {
+    bgcolor="#080818" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled shape=component penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    vi  [label="voice-input.sh" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    tr  [label="transcribe.py" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    fw  [label="faster-whisper" fillcolor="#1a0a00" color="#ff6600" fontcolor="#ff6600"]
+    ct  [label="ctranslate2" fillcolor="#001a1a" color="#00ffff" fontcolor="#00ffff"]
+    par [label="parec" fillcolor="#0a0a0a" color="#00aaff" fontcolor="#00aaff"]
+    sox [label="sox" fillcolor="#0a0a0a" color="#00aaff" fontcolor="#00aaff"]
+    xdo [label="xdotool" fillcolor="#0a0a0a" color="#ffff00" fontcolor="#ffff00"]
+    xcl [label="xclip" fillcolor="#0a0a0a" color="#ffff00" fontcolor="#ffff00"]
+    pap [label="paplay" fillcolor="#0a0a0a" color="#00ffcc" fontcolor="#00ffcc"]
+    cu  [label="libcublas.so.12
+(/usr/lib/ollama)" fillcolor="#1a0000" color="#ff2244" fontcolor="#ff2244"]
+
+    vi -> par [color="#00aaff" label="capture"]
+    vi -> sox [color="#00aaff" label="convert"]
+    vi -> tr  [color="#ff00ff" label="invoke"]
+    vi -> xdo [color="#ffff00" label="type mode"]
+    vi -> xcl [color="#ffff00" label="clip mode"]
+    vi -> pap [color="#00ffcc" label="beeps"]
+    tr -> fw  [color="#ff6600" label="import"]
+    fw -> ct  [color="#00ffff" label="backend"]
+    ct -> cu  [color="#ff2244" label="CUDA"]
+}

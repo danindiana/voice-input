@@ -1,0 +1,29 @@
+
+digraph {
+    bgcolor="#0d0d0d" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+    rankdir=LR
+
+    mic  [label="UC03 USB Mic
+vendor e4b7:0812" shape=box fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    alsa [label="ALSA
+card 3" shape=box fillcolor="#001520" color="#00aaff" fontcolor="#00aaff"]
+    pw   [label="PipeWire
+audio server" shape=box fillcolor="#001520" color="#00ffcc" fontcolor="#00ffcc"]
+    pa   [label="PulseAudio
+compat layer" shape=box fillcolor="#001520" color="#9900ff" fontcolor="#9900ff"]
+    src  [label="PW source
+alsa_input.usb-UC03_UC03-00
+.mono-fallback" shape=box fillcolor="#001520" color="#ff00ff" fontcolor="#ff00ff"]
+    parec [label="parec
+--format=s16le
+--rate=32000
+--channels=1" shape=box fillcolor="#001520" color="#39ff14" fontcolor="#39ff14"]
+
+    mic -> alsa  [label="USB audio" color="#00ffff"]
+    alsa -> pw   [label="kernel driver" color="#00aaff"]
+    pw   -> pa   [label="compat bridge" color="#00ffcc"]
+    pa   -> src  [color="#9900ff"]
+    src  -> parec [label="PCM stream" color="#39ff14"]
+}

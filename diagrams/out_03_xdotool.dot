@@ -1,0 +1,29 @@
+
+digraph {
+    bgcolor="#0a0a1a" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    text  [label="TEXT variable
+(plain transcript)" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    sleep [label="sleep 0.1
+(focus settle time)" fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+    xdo   [label="xdotool type
+  --clearmodifiers
+  --delay 20
+  'TEXT'" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    win   [label="Active X11 window
+(whatever has focus)" fillcolor="#001520" color="#00aaff" fontcolor="#00aaff"]
+    typed [label="Text appears
+as if typed by keyboard" shape=parallelogram fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+
+    note  [label="use case: type into
+Claude Code prompt
+without copy-paste" shape=note fillcolor="#0a0a0a" color="#555555" fontcolor="#555555"]
+
+    text -> sleep [color="#00ffff"]
+    sleep -> xdo  [color="#39ff14"]
+    xdo -> win    [label="X11 fake key events" color="#00aaff"]
+    win -> typed  [color="#ccff00"]
+    note -> xdo   [style=dashed color="#555555"]
+}

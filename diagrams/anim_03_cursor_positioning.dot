@@ -1,0 +1,38 @@
+
+digraph {
+    bgcolor="#0a0a1a" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    ph    [label="placeholder written:
+___¹²·³ˢ 
+(width + ts + space = back cols)" fillcolor="#0d0d0d" color="#555555" fontcolor="#555555"]
+    cur_a [label="cursor at position A
+(after placeholder)" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    frame [label="write scramble:
+xyz¹²·³ˢ 
++ \033[backD" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    cur_b [label="cursor steps LEFT back cols
+→ back at position A-back
+= start of placeholder" fillcolor="#0a001a" color="#ff1493" fontcolor="#ff1493"]
+    final [label="write real word:
+word¹²·³ˢ 
+(no cursor-left)" fillcolor="#001500" color="#39ff14" fontcolor="#39ff14"]
+    cur_c [label="cursor at A
+(after word+ts+space)
+= correct position for
+next word" fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+
+    bad   [label="OLD: \033[s / \033[u
+cursor save/restore
+FAILS silently in tmux,
+VTE terminals" shape=note fillcolor="#1a0000" color="#ff2244" fontcolor="#ff2244"]
+
+    ph    -> cur_a [color="#00ffff"]
+    cur_a -> frame [color="#ff00ff"]
+    frame -> cur_b [color="#ff1493"]
+    cur_b -> frame [label="next frame" color="#ff00ff"]
+    cur_b -> final [label="all frames done" color="#39ff14"]
+    final -> cur_c [color="#ccff00"]
+    bad   -> frame [label="replaced by" color="#ff2244" style=dashed]
+}

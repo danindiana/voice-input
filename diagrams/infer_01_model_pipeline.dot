@@ -1,0 +1,31 @@
+
+digraph {
+    bgcolor="#0d0d0d" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+    rankdir=LR
+
+    wav   [label="WAV file
+32kHz mono" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    mel   [label="Log-Mel
+Spectrogram
+(80 bins)" fillcolor="#001520" color="#00aaff" fontcolor="#00aaff"]
+    enc   [label="Whisper
+Encoder
+(transformer)" fillcolor="#0a001a" color="#9900ff" fontcolor="#9900ff"]
+    dec   [label="Whisper
+Decoder
+(autoregressive)" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    tok   [label="Token
+sequence" fillcolor="#0a001a" color="#ff1493" fillcolor="#0a001a"]
+    text  [label="Text
+segments + words
++ timestamps + prob" fillcolor="#001500" color="#39ff14" fontcolor="#39ff14"]
+
+    wav -> mel  [label="librosa/av" color="#00ffff"]
+    mel -> enc  [label="float16
+CUDA" color="#9900ff"]
+    enc -> dec  [label="key-value cache" color="#ff00ff"]
+    dec -> tok  [label="beam_size=5" color="#ff1493"]
+    tok -> text [label="detokenize" color="#39ff14"]
+}

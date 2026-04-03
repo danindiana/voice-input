@@ -1,0 +1,26 @@
+
+digraph {
+    bgcolor="#111827" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+    rankdir=BT
+
+    vram [label="NVIDIA VRAM
+~1.5GB (medium model)
+RTX 3060 + RTX 3080" fillcolor="#0a0000" color="#ff2244" fontcolor="#ff2244"]
+    cuda [label="CUDA 12 runtime
+libcublas.so.12
+(/usr/lib/ollama/)" fillcolor="#1a0000" color="#ff6600" fontcolor="#ff6600"]
+    ct2  [label="ctranslate2
+(fast inference engine)" fillcolor="#1a0010" color="#ff1493" fontcolor="#ff1493"]
+    fw   [label="faster-whisper
+(Python wrapper)" fillcolor="#0a001a" color="#ff00ff" fontcolor="#ff00ff"]
+    py   [label="transcribe.py
+WhisperModel('medium', device='cuda',
+compute_type='float16')" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+
+    vram -> cuda [color="#ff2244"]
+    cuda -> ct2  [color="#ff6600"]
+    ct2  -> fw   [color="#ff1493"]
+    fw   -> py   [color="#ff00ff"]
+}

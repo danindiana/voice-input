@@ -1,0 +1,28 @@
+
+digraph {
+    bgcolor="#0f0f0f" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2 shape=box]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    start  [label="parec & (PAREC_PID)
+timer subshell & (TIMER_PID)
+trap 'true' USR1" fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    read   [label="read -r _ < /dev/tty
+(blocks here)" fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    path_e [label="Enter key
+(read returns)" shape=diamond fillcolor="#0d0d0d" color="#ffff00" fontcolor="#ffff00"]
+    path_t [label="65s elapsed:
+kill PAREC_PID
+kill -USR1 MAIN_PID
+(read interrupted)" shape=diamond fillcolor="#0d0d0d" color="#ff6600" fontcolor="#ff6600"]
+    cleanup [label="trap - USR1
+kill TIMER_PID
+kill PAREC_PID
+wait PAREC_PID" fillcolor="#001a00" color="#ccff00" fontcolor="#ccff00"]
+
+    start -> read    [color="#00ffff"]
+    read  -> path_e  [label="Enter" color="#ffff00"]
+    read  -> path_t  [label="USR1 signal" color="#ff6600"]
+    path_e -> cleanup [color="#ccff00"]
+    path_t -> cleanup [color="#ccff00"]
+}

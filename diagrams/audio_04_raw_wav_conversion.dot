@@ -1,0 +1,30 @@
+
+digraph {
+    bgcolor="#0f0f0f" fontname="monospace" fontcolor="#e0e0e0"
+    node [fontname="monospace" fontsize=10 style=filled penwidth=2]
+    edge [fontname="monospace" fontsize=9 penwidth=1.5]
+
+    parec [label="parec
+(background process)" shape=box fillcolor="#001520" color="#00ffff" fontcolor="#00ffff"]
+    raw   [label="/tmp/voice-XXXXXX.raw
+raw s16le PCM
+(no header)" shape=cylinder fillcolor="#0d0d1a" color="#00aaff" fontcolor="#00aaff"]
+    kill  [label="parec exits
+(Enter or timeout)" shape=diamond fillcolor="#0d0d0d" color="#ff6600" fontcolor="#ff6600"]
+    sox   [label="sox convert
+(after clean exit)" shape=box fillcolor="#001a00" color="#39ff14" fontcolor="#39ff14"]
+    wav   [label="/tmp/voice-XXXXXX.wav
+valid WAV with header" shape=cylinder fillcolor="#001500" color="#ccff00" fontcolor="#ccff00"]
+
+    old1  [label="OLD: parec | sox pipeline
+(pipe to WAV directly)" shape=note fillcolor="#1a0000" color="#ff2244" fontcolor="#ff2244"]
+    old2  [label="Problem: killing pipeline
+left WAV header incomplete
+→ corrupt file" shape=note fillcolor="#1a0000" color="#ff2244" fontcolor="#ff2244"]
+
+    parec -> raw  [label="write raw bytes" color="#00ffff"]
+    raw -> kill   [color="#555555" style=dashed]
+    kill -> sox   [label="then convert" color="#39ff14"]
+    sox -> wav    [color="#ccff00"]
+    old1 -> old2  [color="#ff2244" style=dashed]
+}

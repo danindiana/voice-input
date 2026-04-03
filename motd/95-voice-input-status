@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# /etc/update-motd.d/95-voice-input-status
+# Non-destructive MOTD fragment: voice-input push-to-talk STT status.
+# Shows mic device, binary health, mode flags, and quick-reference.
+
+BOLD='\033[1m'; CYAN='\033[0;36m'; GREEN='\033[0;32m'
+YELLOW='\033[1;33m'; RED='\033[0;31m'; MAGENTA='\033[0;35m'
+RESET='\033[0m'
+
+BINARY="/usr/local/bin/voice-input"
+TRANSCRIBE="/home/jeb/Documents/claude_creations/2026-04-02_voice-input/transcribe.py"
+VENV="/home/jeb/programs/python_programs/venv"
+MIC_SOURCE="alsa_input.usb-UC03_UC03-00.mono-fallback"
+CUDA_LIB="/usr/lib/ollama/libcublas.so.12"
+
+echo ""
+echo -e "${BOLD}${CYAN}🎙  VOICE-INPUT STATUS:${RESET}"
+
+# --- Binary / symlink ---
+if [[ -x "$BINARY" ]]; then
+    target=$(readlink -f "$BINARY" 2>/dev/null)
+    echo -e "   ${GREEN}•${RESET} Binary:      ${GREEN}OK${RESET}  $BINARY → $target"
+else
+    echo -e "   ${RED}•${RESET} Binary:      ${RED}MISSING${RESET}  $BINARY not found or not executable"
+fi
+
+# --- transcribe.py ---
+if [[ -f "$TRANSCRIBE" ]]; then
+    echo -e "   ${GREEN}•${RESET} transcribe:  ${GREEN}OK${RESET}  $TRANSCRIBE"
+else
+    echo -e "   ${RED}•${RESET} transcribe:  ${RED}MISSING${RESET}  $TRANSCRIBE"
+fi
+
+# --- Python venv + faster-whisper ---
+FW_VERSION=$("$VENV/bin/pip" show faster-whisper 2>/dev/null | grep '^Version:' | awk '{print $2}')
+if [[ -n "$FW_VERSION" ]]; then
+    echo -e "   ${GREEN}•${RESET} faster-whisper: ${GREEN}$FW_VERSION${RESET} (venv: $VENV)"
+else
+    echo -e "   ${RED}•${RESET} faster-whisper: ${RED}NOT FOUND${RESET} in $VENV"
+fi
+
+# --- CUDA lib ---
+if [[ -f "$CUDA_LIB" ]]; then
+    echo -e "   ${GREEN}•${RESET} CUDA:        ${GREEN}OK${RESET}  libcublas.so.12 (/usr/lib/ollama)"
+else
+    echo -e "   ${YELLOW}•${RESET} CUDA:        ${YELLOW}NOT FOUND${RESET}  $CUDA_LIB missing — transcription will fail"
+fi
+
+# --- UC03 mic present? ---
+if pactl list sources short 2>/dev/null | grep -q "$MIC_SOURCE"; then
+    RATE=$(pactl list sources 2>/dev/null \
+        | awk "/Name: $MIC_SOURCE/{found=1} found && /Sample Specification/{print; exit}" \
+        | grep -oP '\d+(?= Hz)' | head -1)
+    RATE_STR="${RATE:+(${RATE} Hz)}"
+    echo -e "   ${GREEN}•${RESET} UC03 mic:    ${GREEN}PRESENT${RESET}  $MIC_SOURCE $RATE_STR"
+else
+    echo -e "   ${YELLOW}•${RESET} UC03 mic:    ${YELLOW}NOT DETECTED${RESET}  (headset unplugged?)"
+fi
+
+# --- Whisper model cache ---
+MODEL_DIR="$HOME/.cache/huggingface/hub"
+MODEL_PATH="$MODEL_DIR/models--Systran--faster-whisper-medium"
+if [[ -d "$MODEL_PATH" ]]; then
+    SIZE=$(du -sh "$MODEL_PATH" 2>/dev/null | awk '{print $1}')
+    echo -e "   ${GREEN}•${RESET} Model cache: ${GREEN}OK${RESET}  faster-whisper-medium ${SIZE:+(${SIZE})}"
+else
+    echo -e "   ${YELLOW}•${RESET} Model cache: ${YELLOW}NOT CACHED${RESET}  will download on first run"
+fi
+
+# --- Quick reference ---
+echo -e "   ${MAGENTA}•${RESET} Modes:"
+echo -e "       ${CYAN}voice-input --print${RESET}             # animated word-by-word → stdout"
+echo -e "       ${CYAN}voice-input --print --no-fancy${RESET}  # plain text → stdout"
+echo -e "       ${CYAN}voice-input --clip${RESET}              # STT → clipboard"
+echo -e "       ${CYAN}voice-input${RESET}                     # STT → xdotool type"

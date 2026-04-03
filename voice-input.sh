@@ -103,7 +103,7 @@ if [[ -z "${TEXT:-}" ]]; then
     exit 0
 fi
 
-# --- Output (clip / type only — print already handled above) ---
+# --- Output ---
 case "$MODE" in
     type)
         sleep 0.1
@@ -112,5 +112,8 @@ case "$MODE" in
     clip)
         echo -n "$TEXT" | xclip -selection clipboard
         echo "[voice-input] Copied to clipboard." >&2
+        ;;
+    print)
+        echo "$TEXT"
         ;;
 esac

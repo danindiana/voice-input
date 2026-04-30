@@ -94,6 +94,26 @@ def plain_transcribe(wav_path: str, model: WhisperModel) -> None:
     segments, _ = model.transcribe(wav_path, beam_size=5, language="en")
     print(" ".join(seg.text.strip() for seg in segments))
 
+def dual_transcribe(wav_path: str, model: WhisperModel) -> None:
+    """Print two lines: words with superscript timestamps, then plain words."""
+    segments, _ = model.transcribe(
+        wav_path,
+        beam_size=5,
+        language="en",
+        word_timestamps=True,
+    )
+    timed, plain = [], []
+    for segment in segments:
+        for word in (segment.words or []):
+            w = word.word.strip()
+            if not w:
+                continue
+            ts_raw, _ = sup_time(word.start)
+            timed.append(f"{w}{ts_raw}")
+            plain.append(w)
+    print(" ".join(timed))
+    print(" ".join(plain))
+
 def load_model(model_size: str = "medium") -> WhisperModel:
     try:
         m = WhisperModel(model_size, device="cuda", compute_type="float16")
@@ -105,16 +125,19 @@ def load_model(model_size: str = "medium") -> WhisperModel:
 
 
 def main() -> None:
-    fancy   = "--fancy" in sys.argv
-    args    = [a for a in sys.argv[1:] if not a.startswith("--")]
+    fancy = "--fancy" in sys.argv
+    dual  = "--dual"  in sys.argv
+    args  = [a for a in sys.argv[1:] if not a.startswith("--")]
 
     if not args:
-        print("Usage: transcribe.py <wav_file> [--fancy]", file=sys.stderr)
+        print("Usage: transcribe.py <wav_file> [--fancy|--dual]", file=sys.stderr)
         sys.exit(1)
 
     model = load_model()
 
-    if fancy:
+    if dual:
+        dual_transcribe(args[0], model)
+    elif fancy:
         fancy_transcribe(args[0], model)
     else:
         plain_transcribe(args[0], model)

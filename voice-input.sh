@@ -39,8 +39,10 @@ OUTPUT MODES (mutually exclusive; default: clean exit)
                 Nothing is typed, copied, or written anywhere.
   --clip        Copy transcribed text to the clipboard (X11 primary selection).
                 Paste with Ctrl+Shift+V (terminal) or Ctrl+V (GUI apps).
-  --print       Print transcribed text to stdout. Useful for scripting or
-                piping into other commands.
+  --print       Print two lines to stdout (after any animation):
+                  Line 1: each word with its superscript timestamp  (hello¹·²ˢ world²·⁴ˢ)
+                  Line 2: plain text only                           (hello world)
+                Useful for scripting, logging, or piping.
   --type        Type transcribed text into the active window via xdotool.
                 Switch to the target window before pressing Enter to stop.
                 Use with care — types into whatever has focus.
@@ -74,9 +76,10 @@ EXAMPLES
   voice-input                       # speak, see animated transcript, exit clean
   voice-input --clip                # speak, copy to clipboard, paste anywhere
   voice-input --type                # speak, type into active window (xdotool)
-  voice-input --print               # speak, print animated transcript to stdout
-  voice-input --print --no-fancy    # speak, print plain text to stdout
-  voice-input --print | xargs -I{} notify-send "Heard" "{}"
+  voice-input --print               # speak, animate, then print timed + plain lines
+  voice-input --print --no-fancy    # speak, print timed + plain lines (no animation)
+  voice-input --print | tail -1     # extract plain-text line only
+  voice-input --print | head -1     # extract timed line only
 
 HARDWARE (this machine)
   Mic source : alsa_input.usb-UC03_UC03-00.mono-fallback
@@ -87,7 +90,7 @@ EOF
     fi
 done
 
-MODE="print"  # print | clip | type  (print = show animation then exit clean)
+MODE="default"  # default | print | clip | type
 FANCY="--fancy"   # pass --fancy to transcribe.py for animated output; --no-fancy to disable
 for arg in "$@"; do
     case "$arg" in
@@ -145,19 +148,29 @@ sox -t raw -r 32000 -e signed -b 16 -c 1 "$TMPRAW" "$TMPWAV"
 echo "[voice-input] Transcribing..." >&2
 
 # --- Transcribe ---
-# Fancy mode streams animation directly to terminal (can't be captured).
-# Plain mode captures text for clipboard/type dispatch.
-# For clip/type with fancy: run fancy for display, then plain for the text.
+# default: fancy animation → exit clean (nothing captured or dispatched)
+# print:   fancy animation (if on) → dual output: timed line + plain line → exit
+# clip/type: fancy animation (if on) → plain capture → dispatch
 
 if [[ -n "$FANCY" ]]; then
-    # Stream animation live to terminal
     "$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" --fancy 2>/dev/null
-    if [[ "$MODE" == "print" ]]; then
+    if [[ "$MODE" == "default" ]]; then
         exit 0
     fi
-    # clip/type also need plain text
+    if [[ "$MODE" == "print" ]]; then
+        "$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" --dual 2>/dev/null
+        exit 0
+    fi
+    # clip/type need plain text
     TEXT=$("$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" 2>/dev/null)
 else
+    if [[ "$MODE" == "default" ]]; then
+        exit 0
+    fi
+    if [[ "$MODE" == "print" ]]; then
+        "$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" --dual 2>/dev/null
+        exit 0
+    fi
     TEXT=$("$VENV/bin/python3" "$TRANSCRIBE" "$TMPWAV" 2>/dev/null)
 fi
 
@@ -175,8 +188,5 @@ case "$MODE" in
     clip)
         echo -n "$TEXT" | xclip -selection clipboard
         echo "[voice-input] Copied to clipboard." >&2
-        ;;
-    print)
-        echo "$TEXT"
         ;;
 esac

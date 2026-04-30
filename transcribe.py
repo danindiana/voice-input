@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Transcribe a WAV file using faster-whisper on GPU.
+Transcribe a WAV file using faster-whisper (GPU if available, CPU fallback).
 
 Usage:
     transcribe.py <wav_file>           # plain text to stdout
@@ -94,6 +94,16 @@ def plain_transcribe(wav_path: str, model: WhisperModel) -> None:
     segments, _ = model.transcribe(wav_path, beam_size=5, language="en")
     print(" ".join(seg.text.strip() for seg in segments))
 
+def load_model(model_size: str = "medium") -> WhisperModel:
+    try:
+        m = WhisperModel(model_size, device="cuda", compute_type="float16")
+        print("[transcribe] Using GPU (cuda/float16)", file=sys.stderr)
+        return m
+    except Exception as e:
+        print(f"[transcribe] GPU unavailable ({e}), falling back to CPU (int8)", file=sys.stderr)
+        return WhisperModel(model_size, device="cpu", compute_type="int8")
+
+
 def main() -> None:
     fancy   = "--fancy" in sys.argv
     args    = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -102,7 +112,7 @@ def main() -> None:
         print("Usage: transcribe.py <wav_file> [--fancy]", file=sys.stderr)
         sys.exit(1)
 
-    model = WhisperModel("medium", device="cuda", compute_type="float16")
+    model = load_model()
 
     if fancy:
         fancy_transcribe(args[0], model)

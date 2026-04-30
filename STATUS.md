@@ -77,6 +77,25 @@ pactl set-source-volume alsa_input.usb-UC03_UC03-00.mono-fallback 100%
 | Fancy animation broken | Frames print sequentially, no in-place overwrite | `\033[s/u` cursor save/restore not supported in terminal | Switch to `\033[{N}D` cursor-left |
 | `--no-fancy` output silent | `--print --no-fancy` produced nothing | `print)` case missing from output dispatch | Restored `print)` case in voice-input.sh |
 
+## Session Log
+
+### 2026-04-30 (Thu Apr 30 09:31 CDT)
+
+**Change: GPU → CPU fallback in `transcribe.py`**
+
+Added `load_model()` function that first attempts `device="cuda"` with `compute_type="float16"`.
+If that raises any exception (CUDA not available, OOM, driver issue, GPU locked by another process),
+it catches it, emits a stderr warning, and loads the model on CPU with `compute_type="int8"`.
+
+Motivation: the dual-GPU setup on worlock is a contention resource shared with Ollama and other
+workloads. `transcribe.py` previously hard-crashed if CUDA init failed. Now it degrades gracefully
+— transcription still works on CPU, just slower.
+
+Stdout path (`voice-input.sh --print`): stderr device messages are suppressed by `2>/dev/null`
+in the shell script, so they don't contaminate captured `$TEXT`.
+
+---
+
 ## Next Steps
 
 - [ ] Global hotkey via `xbindkeys` — launch without second terminal

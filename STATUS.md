@@ -79,6 +79,16 @@ pactl set-source-volume alsa_input.usb-UC03_UC03-00.mono-fallback 100%
 
 ## Session Log
 
+### 2026-04-30 (Thu Apr 30 11:25 CDT, session 3)
+
+**Change: default model → large-v3; --model flag; session doc**
+
+After confirming large-v3 works correctly, bumped the default in both `ambient.py` and `transcribe.py` from `"medium"` to `"large-v3"`. Added `--model <name>` flag to `voice-input.sh` for per-invocation override without needing to set an env var. Session document written to `sessions/2026-04-30_112540.md`.
+
+Use `--model medium` to revert to lighter/faster transcription when GPU is under load.
+
+---
+
 ### 2026-04-30 (Thu Apr 30, session 2)
 
 **Changes: auto-save transcripts, --submit flag, configurable model**
@@ -113,3 +123,4 @@ in the shell script, so they don't contaminate captured `$TEXT`.
 - [x] Auto-submit mode — `voice-input --type --submit` sends Return after xdotool types
 - [x] Configurable model — set `VOICE_WHISPER_MODEL=large-v3` env var to try large-v3
 - [x] Ambient transcript auto-save — each session writes to `~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt` by default; use `--no-save` to disable; footer shows `SAVE: <filename>`
+- [x] Default model upgraded to `large-v3`; use `--model medium` to opt back to lighter/faster

@@ -72,8 +72,8 @@ OUTPUT MODES (mutually exclusive; default: clean exit)
   --no-save     Used with --ambient. Disable the default plain-text transcript
                 auto-save. By default, each session writes to
                 ~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt
-  --model <m>   Override the whisper model. Default: medium.
-                Examples: medium, large-v3, large-v2, small
+  --model <m>   Override the whisper model. Default: large-v3.
+                Examples: large-v3, large-v2, medium, small
                 Works with all modes (push-to-talk and ambient).
 
 DISPLAY OPTIONS
@@ -98,10 +98,10 @@ RECORDING
 
 TRANSCRIPTION
   Uses faster-whisper locally — no cloud API.
-  Default model: medium. Override with --model:
-    voice-input --model large-v3 --ambient
-    voice-input --model large-v3 --print
-  Or via env var: VOICE_WHISPER_MODEL=large-v3 voice-input --ambient
+  Default model: large-v3. Override with --model:
+    voice-input --model medium --ambient    # lighter/faster
+    voice-input --model medium --print
+  Or via env var: VOICE_WHISPER_MODEL=medium voice-input --ambient
   Tries GPU (CUDA float16) first; falls back to CPU (int8) if GPU is
   unavailable or occupied by another process.
 

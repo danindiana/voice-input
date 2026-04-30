@@ -134,7 +134,7 @@ def main() -> None:
         print("Usage: transcribe.py <wav_file> [--fancy|--dual]", file=sys.stderr)
         sys.exit(1)
 
-    model = load_model(os.getenv("VOICE_WHISPER_MODEL", "medium"))
+    model = load_model(os.getenv("VOICE_WHISPER_MODEL", "large-v3"))
 
     if dual:
         dual_transcribe(args[0], model)

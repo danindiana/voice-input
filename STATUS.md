@@ -79,6 +79,16 @@ pactl set-source-volume alsa_input.usb-UC03_UC03-00.mono-fallback 100%
 
 ## Session Log
 
+### 2026-04-30 (Thu Apr 30, session 2)
+
+**Changes: auto-save transcripts, --submit flag, configurable model**
+
+- **Ambient transcript auto-save** (`voice-ambient/src/main.rs`): each session now creates a timestamped plain-text file at `~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt`. Each utterance is appended as `[HH:MM:SS] text`. The TUI footer shows `SAVE: <filename>`. Pass `--no-save` (or set via `voice-input --ambient --no-save`) to disable.
+- **`--submit` flag** (`voice-input.sh`): `voice-input --type --submit` sends `xdotool key Return` after typing — useful for auto-submitting voice input into Claude Code or other prompts.
+- **Configurable model** (`ambient.py`, `transcribe.py`): both scripts now read `VOICE_WHISPER_MODEL` env var (default: `medium`). Run `VOICE_WHISPER_MODEL=large-v3 voice-input --ambient` to test large-v3 accuracy.
+
+---
+
 ### 2026-04-30 (Thu Apr 30 09:31 CDT)
 
 **Change: GPU → CPU fallback in `transcribe.py`**
@@ -99,6 +109,7 @@ in the shell script, so they don't contaminate captured `$TEXT`.
 ## Next Steps
 
 - [ ] Global hotkey via `xbindkeys` — launch without second terminal
-- [ ] Try `large-v3` model for better accuracy
 - [ ] Normalize mic gain after confirming no clipping
-- [ ] Auto-submit mode (append `\n` via xdotool)
+- [x] Auto-submit mode — `voice-input --type --submit` sends Return after xdotool types
+- [x] Configurable model — set `VOICE_WHISPER_MODEL=large-v3` env var to try large-v3
+- [x] Ambient transcript auto-save — each session writes to `~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt` by default; use `--no-save` to disable; footer shows `SAVE: <filename>`

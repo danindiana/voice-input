@@ -48,12 +48,14 @@ def rms_norm(data: bytes) -> float:
 
 def load_model() -> WhisperModel:
     try:
-        m = WhisperModel("medium", device="cuda", compute_type="float16")
-        emit({"type": "status", "msg": "GPU (cuda/float16)"})
+        model_size = os.getenv("VOICE_WHISPER_MODEL", "medium")
+        m = WhisperModel(model_size, device="cuda", compute_type="float16")
+        emit({"type": "status", "msg": f"GPU (cuda/float16) model={model_size}"})
         return m
     except Exception as e:
-        emit({"type": "status", "msg": f"CPU fallback ({type(e).__name__})"})
-        return WhisperModel("medium", device="cpu", compute_type="int8")
+        model_size = os.getenv("VOICE_WHISPER_MODEL", "medium")
+        emit({"type": "status", "msg": f"CPU fallback ({type(e).__name__}) model={model_size}"})
+        return WhisperModel(model_size, device="cpu", compute_type="int8")
 
 
 def transcription_worker(q: Queue, model: WhisperModel) -> None:

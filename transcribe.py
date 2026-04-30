@@ -6,6 +6,7 @@ Usage:
     transcribe.py <wav_file>           # plain text to stdout
     transcribe.py <wav_file> --fancy   # animated word-by-word with probability render
 """
+import os
 import sys
 import time
 import random
@@ -133,7 +134,7 @@ def main() -> None:
         print("Usage: transcribe.py <wav_file> [--fancy|--dual]", file=sys.stderr)
         sys.exit(1)
 
-    model = load_model()
+    model = load_model(os.getenv("VOICE_WHISPER_MODEL", "medium"))
 
     if dual:
         dual_transcribe(args[0], model)

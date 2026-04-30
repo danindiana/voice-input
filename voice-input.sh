@@ -2,12 +2,14 @@
 # voice-input.sh — push-to-talk for terminal / Claude Code
 #
 # Usage:
-#   ./voice-input.sh            # record, show animated transcript, exit clean (default)
-#   ./voice-input.sh --clip     # copy transcript to clipboard
-#   ./voice-input.sh --type     # type transcript into active window (xdotool)
-#   ./voice-input.sh --print    # print to stdout only (for scripting)
-#   ./voice-input.sh --ambient  # continuous ambient mode (Ratatui TUI)
-#   ./voice-input.sh --ambient --db /path/to/db.sqlite   # + SQLite logging
+#   ./voice-input.sh                    # record, show animated transcript, exit clean (default)
+#   ./voice-input.sh --clip             # copy transcript to clipboard
+#   ./voice-input.sh --type             # type transcript into active window (xdotool)
+#   ./voice-input.sh --type --submit    # type + press Return
+#   ./voice-input.sh --print            # print to stdout only (for scripting)
+#   ./voice-input.sh --ambient          # continuous ambient mode (Ratatui TUI, auto-saves txt)
+#   ./voice-input.sh --ambient --no-save               # ambient, no file saved
+#   ./voice-input.sh --ambient --db /path/to/db.sqlite # ambient + SQLite logging
 #
 # Max recording window (push-to-talk modes): 65 seconds (press Enter to stop early)
 # Audio feedback: low beep = recording started, high beep = stopped
@@ -50,19 +52,26 @@ OUTPUT MODES (mutually exclusive; default: clean exit)
   --type        Type transcribed text into the active window via xdotool.
                 Switch to the target window before pressing Enter to stop.
                 Use with care — types into whatever has focus.
+  --submit      Used with --type. Sends the Return key after typing (xdotool key Return).
+                Has no effect without --type.
   --ambient     Continuous push-to-listen mode. Leaves the microphone open and
                 transcribes indefinitely. Renders a full-screen Ratatui TUI with:
                   • Scrolling waveform sparkline (audio waterfall)
                   • Colour-coded level gauge (green / yellow / red)
                   • Live transcript — new utterances appear at bottom, older
                     lines fade from cyan → white → gray → dark-gray over time
-                  • Stats bar (words, utterances, elapsed, DB path)
+                  • Stats bar (words, utterances, elapsed, DB/save paths)
+                Each session auto-saves a plain-text transcript to
+                ~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt
                 Press q, Esc, or Ctrl-C to stop.
                 Requires: voice-ambient binary (see Build section in README).
   --db <path>   Used with --ambient. Write every utterance to a SQLite database
                 at <path>. Creates the file if it does not exist.
                 Schema: sessions(id, started_at, ended_at)
                         utterances(id, session_id, recorded_at, text, word_count)
+  --no-save     Used with --ambient. Disable the default plain-text transcript
+                auto-save. By default, each session writes to
+                ~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt
 
 DISPLAY OPTIONS
   --fancy       Animate each word as it is transcribed: scrambled characters
@@ -85,7 +94,9 @@ RECORDING
   High beep = recording stopped, transcription in progress.
 
 TRANSCRIPTION
-  Uses faster-whisper (medium model) locally — no cloud API.
+  Uses faster-whisper locally — no cloud API.
+  Default model: medium. Override with VOICE_WHISPER_MODEL env var:
+    VOICE_WHISPER_MODEL=large-v3 voice-input --ambient
   Tries GPU (CUDA float16) first; falls back to CPU (int8) if GPU is
   unavailable or occupied by another process.
 
@@ -97,8 +108,11 @@ EXAMPLES
   voice-input --print --no-fancy           # speak, print timed + plain lines (no animation)
   voice-input --print | tail -1            # extract plain-text line only
   voice-input --print | head -1            # extract timed line only
-  voice-input --ambient                    # continuous TUI transcription, no logging
+  voice-input --ambient                    # continuous TUI transcription + auto-save txt
+  voice-input --ambient --no-save          # continuous TUI transcription, no file saved
   voice-input --ambient --db ~/notes.db   # continuous TUI transcription + SQLite log
+  voice-input --type --submit              # speak, type into active window, then press Enter
+  VOICE_WHISPER_MODEL=large-v3 voice-input --ambient   # use large-v3 model
 
 HARDWARE (this machine)
   Mic source : alsa_input.usb-UC03_UC03-00.mono-fallback
@@ -111,6 +125,8 @@ done
 
 MODE="default"  # default | print | clip | type | ambient
 FANCY="--fancy"
+SUBMIT=false
+NO_SAVE=false
 _ndb=false
 for arg in "$@"; do
     if [[ "$_ndb" == true ]]; then DB_PATH="$arg"; _ndb=false; continue; fi
@@ -119,6 +135,8 @@ for arg in "$@"; do
         --print)    MODE="print"   ;;
         --type)     MODE="type"    ;;
         --ambient)  MODE="ambient" ;;
+        --submit)   SUBMIT=true    ;;
+        --no-save)  NO_SAVE=true   ;;
         --no-fancy) FANCY=""       ;;
         --db)       _ndb=true      ;;
         --db=*)     DB_PATH="${arg#--db=}" ;;
@@ -135,6 +153,7 @@ if [[ "$MODE" == "ambient" ]]; then
     fi
     ARGS=(--script "$SCRIPT_DIR/ambient.py" --python "$VENV/bin/python3")
     [[ -n "$DB_PATH" ]] && ARGS+=(--db "$DB_PATH")
+    [[ "${NO_SAVE:-false}" == true ]] && ARGS+=(--no-save)
     exec "$BINARY" "${ARGS[@]}"
 fi
 
@@ -224,6 +243,7 @@ case "$MODE" in
     type)
         sleep 0.1
         xdotool type --clearmodifiers --delay 20 "$TEXT"
+        [[ "$SUBMIT" == true ]] && xdotool key Return
         ;;
     clip)
         echo -n "$TEXT" | xclip -selection clipboard

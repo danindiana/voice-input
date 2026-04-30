@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
-use std::io::{self, BufRead, BufReader};
+use std::fs;
+use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -50,10 +51,11 @@ struct App {
     blink: bool,
     last_blink: Instant,
     db_path: Option<String>,
+    transcript_path: Option<String>,
 }
 
 impl App {
-    fn new(db_path: Option<String>) -> Self {
+    fn new(db_path: Option<String>, transcript_path: Option<String>) -> Self {
         App {
             utterances: VecDeque::new(),
             level_history: vec![0u64; 100],
@@ -65,6 +67,7 @@ impl App {
             blink: true,
             last_blink: Instant::now(),
             db_path,
+            transcript_path,
         }
     }
 
@@ -133,9 +136,12 @@ fn now_iso() -> String {
 
 // ── Reader thread ─────────────────────────────────────────────────────────────
 
-fn spawn_reader(stdout: std::process::ChildStdout, tx: Sender<Update>, db_path: Option<String>) {
+fn spawn_reader(stdout: std::process::ChildStdout, tx: Sender<Update>, db_path: Option<String>, transcript_path: Option<String>) {
     thread::spawn(move || {
         let conn = db_path.as_deref().and_then(|p| open_db(p).ok());
+        let mut transcript_file = transcript_path.as_deref().and_then(|p| {
+            fs::OpenOptions::new().create(true).append(true).open(p).ok()
+        });
 
         let session_id: i64 = conn.as_ref().map_or(0, |c| {
             let _ = c.execute(
@@ -167,6 +173,10 @@ fn spawn_reader(stdout: std::process::ChildStdout, tx: Sender<Update>, db_path: 
                              VALUES (?1, ?2, ?3, ?4)",
                             rusqlite::params![session_id, ts, text, wc],
                         );
+                    }
+                    if let Some(ref mut f) = transcript_file {
+                        let ts_display = ts.get(11..19).unwrap_or(&ts);
+                        let _ = writeln!(f, "[{}] {}", ts_display, text);
                     }
                     Update::Utterance { ts, text }
                 }
@@ -322,6 +332,16 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         ),
         None => Span::styled("DB: off  ", Style::default().fg(Color::DarkGray)),
     };
+    let save_span = match &app.transcript_path {
+        Some(p) => {
+            let name = std::path::Path::new(p)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(p.as_str());
+            Span::styled(format!("SAVE: {}  ", name), Style::default().fg(Color::Green))
+        }
+        None => Span::styled("SAVE: off  ", Style::default().fg(Color::DarkGray)),
+    };
     let line = Line::from(vec![
         Span::styled(app.status_msg.as_str(), Style::default().fg(Color::Green)),
         Span::raw("  │  "),
@@ -331,6 +351,8 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         ),
         Span::raw("  │  "),
         db_span,
+        Span::raw("  │  "),
+        save_span,
         Span::styled("  q / Ctrl-C to stop", Style::default().fg(Color::DarkGray)),
     ]);
     frame.render_widget(
@@ -354,9 +376,20 @@ fn main() -> io::Result<()> {
             .map(|w| w[1].clone())
     };
 
-    let script  = get_arg("--script").unwrap_or_default();
-    let python  = get_arg("--python").unwrap_or_default();
-    let db_path = get_arg("--db");
+    let script   = get_arg("--script").unwrap_or_default();
+    let python   = get_arg("--python").unwrap_or_default();
+    let db_path  = get_arg("--db");
+    let no_save  = args.contains(&"--no-save".to_string());
+
+    let transcript_path: Option<String> = if no_save {
+        None
+    } else {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let dir  = format!("{}/.local/share/voice-input/transcripts", home);
+        let _    = fs::create_dir_all(&dir);
+        let ts   = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+        Some(format!("{}/{}.txt", dir, ts))
+    };
 
     // ── Spawn Python subprocess ───────────────────────────────────────────────
     let mut child: Child = Command::new(&python)
@@ -370,7 +403,7 @@ fn main() -> io::Result<()> {
 
     // ── Start reader thread ───────────────────────────────────────────────────
     let (tx, rx): (Sender<Update>, Receiver<Update>) = mpsc::channel();
-    spawn_reader(child_stdout, tx, db_path.clone());
+    spawn_reader(child_stdout, tx, db_path.clone(), transcript_path.clone());
 
     // ── Terminal setup ────────────────────────────────────────────────────────
     enable_raw_mode()?;
@@ -378,7 +411,7 @@ fn main() -> io::Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
-    let mut app = App::new(db_path);
+    let mut app = App::new(db_path, transcript_path);
 
     // ── Render loop ───────────────────────────────────────────────────────────
     'main: loop {

@@ -1,5 +1,9 @@
 # voice-input
 
+<p align="center">
+  <img src="voice-input-logo.png" alt="voice-input logo" width="400"/>
+</p>
+
 Push-to-talk speech-to-text for Linux terminals. Captures mic input, transcribes locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), and outputs text to stdout, clipboard, or types it directly into the active window. Uses GPU when available, falls back to CPU automatically.
 
 Built for and tested on: Ubuntu/Debian, PipeWire audio, NVIDIA GPU (optional), UC03 USB headset.

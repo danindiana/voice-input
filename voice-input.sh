@@ -25,6 +25,63 @@ TMPRAW=$(mktemp /tmp/voice-XXXXXX.raw)
 TMPWAV=$(mktemp /tmp/voice-XXXXXX.wav)
 MAX_SECONDS=65
 
+for arg in "$@"; do
+    if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
+        cat <<'EOF'
+voice-input — push-to-talk speech-to-text
+
+USAGE
+  voice-input [OPTIONS]
+
+OUTPUT MODES (mutually exclusive; default: --type)
+  (none)        Transcribed text is typed into the active window via xdotool.
+                Switch to the target window before pressing Enter to stop.
+  --clip        Copy transcribed text to the clipboard (X11 primary selection).
+                Paste with Ctrl+Shift+V (terminal) or Ctrl+V (GUI apps).
+  --print       Print transcribed text to stdout. Useful for scripting or
+                piping into other commands.
+
+DISPLAY OPTIONS
+  --fancy       Animate each word as it is transcribed: scrambled characters
+                resolve to the final word, colored by confidence.
+                  bright white  ≥92% confidence
+                  normal        ≥75%
+                  yellow        ≥50%
+                  red           <50%
+                Superscript timestamps show when each word was spoken.
+                This is the default when --print is active.
+  --no-fancy    Skip animation; print plain text only. Faster for scripting.
+
+OTHER
+  --help, -h    Show this help and exit.
+
+RECORDING
+  Press Enter to stop recording early.
+  Auto-stops after 65 seconds.
+  Low beep  = recording started.
+  High beep = recording stopped, transcription in progress.
+
+TRANSCRIPTION
+  Uses faster-whisper (medium model) locally — no cloud API.
+  Tries GPU (CUDA float16) first; falls back to CPU (int8) if GPU is
+  unavailable or occupied by another process.
+
+EXAMPLES
+  voice-input                       # speak, then type into active window
+  voice-input --clip                # speak, then paste from clipboard
+  voice-input --print               # speak, print animated transcript to stdout
+  voice-input --print --no-fancy    # speak, print plain text to stdout
+  voice-input --print | xargs -I{} notify-send "Heard" "{}"
+
+HARDWARE (this machine)
+  Mic source : alsa_input.usb-UC03_UC03-00.mono-fallback
+  Audio sink : alsa_output.usb-UC03_UC03-00.analog-stereo
+  Sample rate: 32000 Hz mono (UC03 native — do not change)
+EOF
+        exit 0
+    fi
+done
+
 MODE="type"   # type | clip | print
 FANCY="--fancy"   # pass --fancy to transcribe.py for animated output; --no-fancy to disable
 for arg in "$@"; do

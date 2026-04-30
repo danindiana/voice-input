@@ -1,8 +1,8 @@
 # voice-input
 
-GPU-accelerated push-to-talk speech-to-text for Linux terminals. Captures mic input, transcribes locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), and outputs text to stdout, clipboard, or types it directly into the active window.
+Push-to-talk speech-to-text for Linux terminals. Captures mic input, transcribes locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), and outputs text to stdout, clipboard, or types it directly into the active window. Uses GPU when available, falls back to CPU automatically.
 
-Built for and tested on: Ubuntu/Debian, PipeWire audio, NVIDIA GPU, UC03 USB headset.
+Built for and tested on: Ubuntu/Debian, PipeWire audio, NVIDIA GPU (optional), UC03 USB headset.
 
 ---
 
@@ -37,7 +37,7 @@ Low beep = recording started. High beep = stopped, transcribing.
 
 ### Hardware
 - USB headset or microphone (tested: UC03 USB)
-- NVIDIA GPU with CUDA (tested: RTX 3060 12GB, RTX 3080 10GB)
+- NVIDIA GPU with CUDA — optional (tested: RTX 3060 12GB, RTX 3080 10GB); falls back to CPU if unavailable
 
 ### System packages
 | Package | Purpose |
@@ -53,11 +53,12 @@ Low beep = recording started. High beep = stopped, transcribing.
 - See `requirements.txt` — install with `pip install -r requirements.txt`
 - Whisper model (~1.5 GB) downloads automatically on first run to `~/.cache/huggingface/`
 
-### CUDA
-- Requires `libcublas.so.12` — **not** included in standard CUDA 11 installs
+### CUDA (optional)
+- GPU mode requires `libcublas.so.12` — **not** included in standard CUDA 11 installs
 - If you have [Ollama](https://ollama.com) installed, it bundles this at `/usr/lib/ollama/`
 - The script sets `LD_LIBRARY_PATH=/usr/lib/ollama` automatically
 - Alternatively: install CUDA 12 toolkit
+- If CUDA init fails for any reason (GPU absent, OOM, driver issue, contention), `transcribe.py` automatically falls back to CPU with `int8` quantization and logs a warning to stderr
 
 ---
 
@@ -162,13 +163,15 @@ Combined with a USR1 signal from a background timer to unblock `read` on timeout
 
 ## Whisper Model
 
-Default model: `faster-whisper medium` (~1.5 GB, float16 on GPU).
+Default model: `faster-whisper medium` (~1.5 GB).
 
-To use a larger/smaller model, edit `transcribe.py`:
+Device selection is automatic: GPU (`float16`) is tried first; CPU (`int8`) is used if GPU init fails.
+
+To switch model size, edit the `load_model()` call in `transcribe.py`:
 ```python
-model = WhisperModel("large-v3", device="cuda", compute_type="float16")  # more accurate
-model = WhisperModel("small",    device="cuda", compute_type="float16")  # faster
-model = WhisperModel("medium",   device="cpu",  compute_type="int8")     # no GPU
+model = load_model("large-v3")  # more accurate, ~3 GB
+model = load_model("small")     # faster, ~500 MB
+model = load_model("medium")    # default
 ```
 
 ---

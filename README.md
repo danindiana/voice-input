@@ -22,10 +22,11 @@ chmod +x voice-input.sh
 sudo ln -sf "$(pwd)/voice-input.sh" /usr/local/bin/voice-input
 
 # 5. Run
+voice-input                     # transcribe → animated display, exit clean (default)
+voice-input --clip              # transcribe → clipboard (Ctrl+Shift+V to paste)
+voice-input --type              # transcribe → xdotool types into active window
 voice-input --print             # transcribe → stdout (animated)
 voice-input --print --no-fancy  # transcribe → stdout (plain)
-voice-input --clip             # transcribe → clipboard (Ctrl+Shift+V to paste)
-voice-input                    # transcribe → xdotool types into active window
 ```
 
 Press **Enter** to stop recording early. Auto-stops at 65 seconds.  

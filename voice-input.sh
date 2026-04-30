@@ -2,8 +2,9 @@
 # voice-input.sh — push-to-talk for terminal / Claude Code
 #
 # Usage:
-#   ./voice-input.sh            # record until Enter, then type into active window
-#   ./voice-input.sh --clip     # same, but only copy to clipboard (no auto-type)
+#   ./voice-input.sh            # record, show animated transcript, exit clean (default)
+#   ./voice-input.sh --clip     # copy transcript to clipboard
+#   ./voice-input.sh --type     # type transcript into active window (xdotool)
 #   ./voice-input.sh --print    # print to stdout only (for scripting)
 #
 # Max recording window: 65 seconds (press Enter to stop early)
@@ -33,13 +34,16 @@ voice-input — push-to-talk speech-to-text
 USAGE
   voice-input [OPTIONS]
 
-OUTPUT MODES (mutually exclusive; default: --type)
-  (none)        Transcribed text is typed into the active window via xdotool.
-                Switch to the target window before pressing Enter to stop.
+OUTPUT MODES (mutually exclusive; default: clean exit)
+  (none)        Show animated transcript on the terminal, then exit cleanly.
+                Nothing is typed, copied, or written anywhere.
   --clip        Copy transcribed text to the clipboard (X11 primary selection).
                 Paste with Ctrl+Shift+V (terminal) or Ctrl+V (GUI apps).
   --print       Print transcribed text to stdout. Useful for scripting or
                 piping into other commands.
+  --type        Type transcribed text into the active window via xdotool.
+                Switch to the target window before pressing Enter to stop.
+                Use with care — types into whatever has focus.
 
 DISPLAY OPTIONS
   --fancy       Animate each word as it is transcribed: scrambled characters
@@ -67,8 +71,9 @@ TRANSCRIPTION
   unavailable or occupied by another process.
 
 EXAMPLES
-  voice-input                       # speak, then type into active window
-  voice-input --clip                # speak, then paste from clipboard
+  voice-input                       # speak, see animated transcript, exit clean
+  voice-input --clip                # speak, copy to clipboard, paste anywhere
+  voice-input --type                # speak, type into active window (xdotool)
   voice-input --print               # speak, print animated transcript to stdout
   voice-input --print --no-fancy    # speak, print plain text to stdout
   voice-input --print | xargs -I{} notify-send "Heard" "{}"
@@ -82,12 +87,13 @@ EOF
     fi
 done
 
-MODE="type"   # type | clip | print
+MODE="print"  # print | clip | type  (print = show animation then exit clean)
 FANCY="--fancy"   # pass --fancy to transcribe.py for animated output; --no-fancy to disable
 for arg in "$@"; do
     case "$arg" in
         --clip)     MODE="clip"  ;;
         --print)    MODE="print" ;;
+        --type)     MODE="type"  ;;
         --no-fancy) FANCY=""     ;;
     esac
 done

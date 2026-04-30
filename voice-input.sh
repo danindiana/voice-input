@@ -72,6 +72,9 @@ OUTPUT MODES (mutually exclusive; default: clean exit)
   --no-save     Used with --ambient. Disable the default plain-text transcript
                 auto-save. By default, each session writes to
                 ~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt
+  --model <m>   Override the whisper model. Default: medium.
+                Examples: medium, large-v3, large-v2, small
+                Works with all modes (push-to-talk and ambient).
 
 DISPLAY OPTIONS
   --fancy       Animate each word as it is transcribed: scrambled characters
@@ -95,8 +98,10 @@ RECORDING
 
 TRANSCRIPTION
   Uses faster-whisper locally — no cloud API.
-  Default model: medium. Override with VOICE_WHISPER_MODEL env var:
-    VOICE_WHISPER_MODEL=large-v3 voice-input --ambient
+  Default model: medium. Override with --model:
+    voice-input --model large-v3 --ambient
+    voice-input --model large-v3 --print
+  Or via env var: VOICE_WHISPER_MODEL=large-v3 voice-input --ambient
   Tries GPU (CUDA float16) first; falls back to CPU (int8) if GPU is
   unavailable or occupied by another process.
 
@@ -111,8 +116,9 @@ EXAMPLES
   voice-input --ambient                    # continuous TUI transcription + auto-save txt
   voice-input --ambient --no-save          # continuous TUI transcription, no file saved
   voice-input --ambient --db ~/notes.db   # continuous TUI transcription + SQLite log
+  voice-input --ambient --model large-v3  # continuous TUI with large-v3 model
   voice-input --type --submit              # speak, type into active window, then press Enter
-  VOICE_WHISPER_MODEL=large-v3 voice-input --ambient   # use large-v3 model
+  voice-input --model large-v3 --print    # push-to-talk with large-v3 model
 
 HARDWARE (this machine)
   Mic source : alsa_input.usb-UC03_UC03-00.mono-fallback
@@ -127,9 +133,12 @@ MODE="default"  # default | print | clip | type | ambient
 FANCY="--fancy"
 SUBMIT=false
 NO_SAVE=false
+MODEL=""
 _ndb=false
+_mdl=false
 for arg in "$@"; do
     if [[ "$_ndb" == true ]]; then DB_PATH="$arg"; _ndb=false; continue; fi
+    if [[ "$_mdl" == true ]]; then MODEL="$arg";   _mdl=false; continue; fi
     case "$arg" in
         --clip)     MODE="clip"    ;;
         --print)    MODE="print"   ;;
@@ -140,8 +149,13 @@ for arg in "$@"; do
         --no-fancy) FANCY=""       ;;
         --db)       _ndb=true      ;;
         --db=*)     DB_PATH="${arg#--db=}" ;;
+        --model)    _mdl=true      ;;
+        --model=*)  MODEL="${arg#--model=}" ;;
     esac
 done
+
+# Apply model selection — inherited by all subprocesses (ambient.py, transcribe.py)
+[[ -n "$MODEL" ]] && export VOICE_WHISPER_MODEL="$MODEL"
 
 # Ambient mode: hand off entirely to the Rust TUI binary (no push-to-talk recording)
 if [[ "$MODE" == "ambient" ]]; then

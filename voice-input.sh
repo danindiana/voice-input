@@ -6,11 +6,14 @@
 #   ./voice-input.sh --clip     # copy transcript to clipboard
 #   ./voice-input.sh --type     # type transcript into active window (xdotool)
 #   ./voice-input.sh --print    # print to stdout only (for scripting)
+#   ./voice-input.sh --ambient  # continuous ambient mode (Ratatui TUI)
+#   ./voice-input.sh --ambient --db /path/to/db.sqlite   # + SQLite logging
 #
-# Max recording window: 65 seconds (press Enter to stop early)
+# Max recording window (push-to-talk modes): 65 seconds (press Enter to stop early)
 # Audio feedback: low beep = recording started, high beep = stopped
 #
 # Requires: parec, sox, faster-whisper (venv), xdotool, xclip
+# Ambient also requires: voice-ambient binary (cd voice-ambient && cargo build --release)
 
 set -euo pipefail
 
@@ -22,9 +25,10 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 TRANSCRIBE="$SCRIPT_DIR/transcribe.py"
 MIC_SOURCE="alsa_input.usb-UC03_UC03-00.mono-fallback"
 AUDIO_SINK="alsa_output.usb-UC03_UC03-00.analog-stereo"
-TMPRAW=$(mktemp /tmp/voice-XXXXXX.raw)
-TMPWAV=$(mktemp /tmp/voice-XXXXXX.wav)
 MAX_SECONDS=65
+DB_PATH=""
+TMPRAW=""
+TMPWAV=""
 
 for arg in "$@"; do
     if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
@@ -46,6 +50,19 @@ OUTPUT MODES (mutually exclusive; default: clean exit)
   --type        Type transcribed text into the active window via xdotool.
                 Switch to the target window before pressing Enter to stop.
                 Use with care — types into whatever has focus.
+  --ambient     Continuous push-to-listen mode. Leaves the microphone open and
+                transcribes indefinitely. Renders a full-screen Ratatui TUI with:
+                  • Scrolling waveform sparkline (audio waterfall)
+                  • Colour-coded level gauge (green / yellow / red)
+                  • Live transcript — new utterances appear at bottom, older
+                    lines fade from cyan → white → gray → dark-gray over time
+                  • Stats bar (words, utterances, elapsed, DB path)
+                Press q, Esc, or Ctrl-C to stop.
+                Requires: voice-ambient binary (see Build section in README).
+  --db <path>   Used with --ambient. Write every utterance to a SQLite database
+                at <path>. Creates the file if it does not exist.
+                Schema: sessions(id, started_at, ended_at)
+                        utterances(id, session_id, recorded_at, text, word_count)
 
 DISPLAY OPTIONS
   --fancy       Animate each word as it is transcribed: scrambled characters
@@ -73,13 +90,15 @@ TRANSCRIPTION
   unavailable or occupied by another process.
 
 EXAMPLES
-  voice-input                       # speak, see animated transcript, exit clean
-  voice-input --clip                # speak, copy to clipboard, paste anywhere
-  voice-input --type                # speak, type into active window (xdotool)
-  voice-input --print               # speak, animate, then print timed + plain lines
-  voice-input --print --no-fancy    # speak, print timed + plain lines (no animation)
-  voice-input --print | tail -1     # extract plain-text line only
-  voice-input --print | head -1     # extract timed line only
+  voice-input                              # speak, see animated transcript, exit clean
+  voice-input --clip                       # speak, copy to clipboard, paste anywhere
+  voice-input --type                       # speak, type into active window (xdotool)
+  voice-input --print                      # speak, animate, then print timed + plain lines
+  voice-input --print --no-fancy           # speak, print timed + plain lines (no animation)
+  voice-input --print | tail -1            # extract plain-text line only
+  voice-input --print | head -1            # extract timed line only
+  voice-input --ambient                    # continuous TUI transcription, no logging
+  voice-input --ambient --db ~/notes.db   # continuous TUI transcription + SQLite log
 
 HARDWARE (this machine)
   Mic source : alsa_input.usb-UC03_UC03-00.mono-fallback
@@ -90,17 +109,38 @@ EOF
     fi
 done
 
-MODE="default"  # default | print | clip | type
-FANCY="--fancy"   # pass --fancy to transcribe.py for animated output; --no-fancy to disable
+MODE="default"  # default | print | clip | type | ambient
+FANCY="--fancy"
+_ndb=false
 for arg in "$@"; do
+    if [[ "$_ndb" == true ]]; then DB_PATH="$arg"; _ndb=false; continue; fi
     case "$arg" in
-        --clip)     MODE="clip"  ;;
-        --print)    MODE="print" ;;
-        --type)     MODE="type"  ;;
-        --no-fancy) FANCY=""     ;;
+        --clip)     MODE="clip"    ;;
+        --print)    MODE="print"   ;;
+        --type)     MODE="type"    ;;
+        --ambient)  MODE="ambient" ;;
+        --no-fancy) FANCY=""       ;;
+        --db)       _ndb=true      ;;
+        --db=*)     DB_PATH="${arg#--db=}" ;;
     esac
 done
 
+# Ambient mode: hand off entirely to the Rust TUI binary (no push-to-talk recording)
+if [[ "$MODE" == "ambient" ]]; then
+    BINARY="$SCRIPT_DIR/voice-ambient/target/release/voice-ambient"
+    if [[ ! -x "$BINARY" ]]; then
+        echo "[voice-input] ambient binary not found. Build it first:" >&2
+        echo "  cd $SCRIPT_DIR/voice-ambient && cargo build --release" >&2
+        exit 1
+    fi
+    ARGS=(--script "$SCRIPT_DIR/ambient.py" --python "$VENV/bin/python3")
+    [[ -n "$DB_PATH" ]] && ARGS+=(--db "$DB_PATH")
+    exec "$BINARY" "${ARGS[@]}"
+fi
+
+# Push-to-talk modes: create temp files and register cleanup
+TMPRAW=$(mktemp /tmp/voice-XXXXXX.raw)
+TMPWAV=$(mktemp /tmp/voice-XXXXXX.wav)
 cleanup() { rm -f "$TMPRAW" "$TMPWAV"; }
 trap cleanup EXIT
 

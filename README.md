@@ -85,8 +85,10 @@ pactl list sources short
 
 | File | Purpose |
 |------|---------|
-| `voice-input.sh` | Main script — records, dispatches to transcribe.py, outputs text |
-| `transcribe.py` | Loads faster-whisper medium model on GPU, transcribes WAV to stdout |
+| `voice-input.sh` | Main script — records, dispatches, outputs text; routes `--ambient` to Rust TUI |
+| `transcribe.py` | faster-whisper transcription (plain, fancy-animated, dual, timed) |
+| `ambient.py` | Continuous mic capture + transcription worker; emits JSON to Rust TUI |
+| `voice-ambient/` | Rust/Ratatui TUI binary for ambient mode |
 | `requirements.txt` | Frozen Python dependencies |
 | `STATUS.md` | Debug history, build notes, lessons learned |
 
@@ -177,6 +179,67 @@ model = load_model("medium")    # default
 
 ---
 
+## Ambient Mode
+
+`voice-input --ambient` opens a full-screen TUI that keeps the microphone open and transcribes continuously until you press `q`, `Esc`, or `Ctrl-C`.
+
+```
+┌● REC  voice-input : ambient  00:05:23──────────────────────────┐
+│                                                                   │
+│ waveform                                                          │
+│▁▂▄▆▇▇▆▄▃▂▁▁▁▂▃▄▅▆▇▆▅▄▃▂▁▁▁▁▂▃▄▅▅▄▃▂▁▁▁▁▁▁▁▁▂▃▄▅▆▇▇▆▅▄▃▂▁▁▁▁│
+│████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░         │
+├───────────────────────────────────────────────────────────────────┤
+│ transcript                                                        │
+│ 14:32:01 hello world how are you doing today                      │
+│ 14:32:08 i think we should implement this feature                 │
+│ 14:32:16 that way we can test it properly                         │
+├───────────────────────────────────────────────────────────────────┤
+│ Recording  │  words: 47  utt: 8  │  DB: off    q / Ctrl-C to stop│
+└───────────────────────────────────────────────────────────────────┘
+```
+
+**Visual cues:**
+- Waveform sparkline scrolls left as audio arrives (the "waterfall")
+- Level gauge shifts green → yellow → red by amplitude
+- Transcript lines fade cyan → white → gray → dark-gray as they age
+- REC indicator blinks red while recording
+
+**SQLite logging** (`--db <path>`):
+
+```bash
+voice-input --ambient --db ~/transcripts.db
+```
+
+Creates (or appends to) an SQLite database:
+
+```sql
+sessions   (id, started_at, ended_at)
+utterances (id, session_id, recorded_at, text, word_count)
+```
+
+Query example:
+```bash
+sqlite3 ~/transcripts.db "SELECT recorded_at, text FROM utterances ORDER BY id DESC LIMIT 10;"
+```
+
+### Building the ambient binary
+
+Requires Rust / Cargo (install via https://rustup.rs if needed):
+
+```bash
+cd voice-ambient
+cargo build --release
+# binary: voice-ambient/target/release/voice-ambient (~3 MB, statically linked SQLite)
+```
+
+The binary is auto-discovered by `voice-input.sh` at that path. To put it on PATH manually:
+```bash
+sudo ln -sf "$(pwd)/voice-ambient/target/release/voice-ambient" /usr/local/bin/voice-ambient
+```
+
+---
+
 ## Suggested Workflow with Claude Code
 
 Open a split terminal:
@@ -184,3 +247,8 @@ Open a split terminal:
 - **Right pane:** `voice-input --clip`
 
 Speak → press Enter → `Ctrl+Shift+V` into the Claude Code prompt.
+
+For longer sessions where you want a transcript log:
+```bash
+voice-input --ambient --db ~/session-$(date +%Y%m%d).db
+```

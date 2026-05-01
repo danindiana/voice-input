@@ -365,15 +365,26 @@ fn run_ambient(args: &Args) {
         std::process::exit(1);
     }
 
+    // ambient_infer.py is the Tier 2 inference-only daemon (no parec/sox)
     let script = locate_transcribe_py()
         .parent()
         .unwrap_or(std::path::Path::new("."))
-        .join("ambient.py");
+        .join("ambient_infer.py");
+    // Fall back to ambient.py if ambient_infer.py not found yet
+    let script = if script.exists() {
+        script
+    } else {
+        locate_transcribe_py()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("ambient.py")
+    };
     let python = locate_python();
 
     let mut cmd = Command::new(&ambient_bin);
     cmd.arg("--script").arg(&script)
         .arg("--python").arg(&python)
+        .arg("--model").arg(&args.model)
         .env("VOICE_WHISPER_MODEL", &args.model);
 
     if let Some(db) = &args.db {

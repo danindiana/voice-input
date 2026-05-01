@@ -120,7 +120,10 @@ in the shell script, so they don't contaminate captured `$TEXT`.
 
 - [ ] Global hotkey via `xbindkeys` — launch without second terminal
 - [ ] Normalize mic gain after confirming no clipping
+- [ ] **Tier 3**: download `ggml-large-v3.bin` + integrate whisper-rs (eliminate Python entirely)
 - [x] Auto-submit mode — `voice-input --type --submit` sends Return after xdotool types
 - [x] Configurable model — set `VOICE_WHISPER_MODEL=large-v3` env var to try large-v3
 - [x] Ambient transcript auto-save — each session writes to `~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt` by default; use `--no-save` to disable; footer shows `SAVE: <filename>`
 - [x] Default model upgraded to `large-v3`; use `--model medium` to opt back to lighter/faster
+- [x] **Tier 1**: `voice-input` Rust binary replaces `voice-input.sh` (cpal/hound/rodio/enigo/arboard); device: `"pipewire"` ALSA virtual
+- [x] **Tier 2**: ambient audio in Rust — cpal replaces parec, hound replaces sox; `ambient_infer.py` is inference-only daemon

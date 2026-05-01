@@ -1,11 +1,14 @@
 use std::collections::VecDeque;
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
@@ -20,6 +23,13 @@ use ratatui::{
     Frame, Terminal,
 };
 use serde::Deserialize;
+
+// ── Audio constants ───────────────────────────────────────────────────────────
+
+const SAMPLE_RATE: u32 = 32_000;
+const CHUNK_SAMPLES: usize = SAMPLE_RATE as usize * 5;   // 5-second transcription window
+const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
+const PIPEWIRE_DEVICE: &str = "pipewire";
 
 // ── Messages from Python ──────────────────────────────────────────────────────
 
@@ -136,7 +146,12 @@ fn now_iso() -> String {
 
 // ── Reader thread ─────────────────────────────────────────────────────────────
 
-fn spawn_reader(stdout: std::process::ChildStdout, tx: Sender<Update>, db_path: Option<String>, transcript_path: Option<String>) {
+fn spawn_reader(
+    stdout: std::process::ChildStdout,
+    tx: Sender<Update>,
+    db_path: Option<String>,
+    transcript_path: Option<String>,
+) {
     thread::spawn(move || {
         let conn = db_path.as_deref().and_then(|p| open_db(p).ok());
         let mut transcript_file = transcript_path.as_deref().and_then(|p| {
@@ -199,6 +214,150 @@ fn spawn_reader(stdout: std::process::ChildStdout, tx: Sender<Update>, db_path: 
     });
 }
 
+// ── Audio capture (Tier 2) ────────────────────────────────────────────────────
+
+fn quiet_stderr<F: FnOnce() -> T, T>(f: F) -> T {
+    unsafe {
+        let null = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_WRONLY);
+        let saved = libc::dup(2);
+        libc::dup2(null, 2);
+        libc::close(null);
+        let r = f();
+        libc::dup2(saved, 2);
+        libc::close(saved);
+        r
+    }
+}
+
+fn find_pipewire_device() -> cpal::Device {
+    quiet_stderr(|| {
+        let host = cpal::default_host();
+        host.input_devices()
+            .expect("cannot enumerate input devices")
+            .find(|d| d.name().map(|n| n == PIPEWIRE_DEVICE).unwrap_or(false))
+            .unwrap_or_else(|| host.default_input_device().expect("no default input device"))
+    })
+}
+
+fn rms_f64(samples: &[i16]) -> f64 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_sq: f64 = samples.iter().map(|&s| (s as f64).powi(2)).sum();
+    ((sum_sq / samples.len() as f64).sqrt() / 32768.0).min(1.0)
+}
+
+fn write_chunk_wav(samples: &[i16]) -> io::Result<std::path::PathBuf> {
+    let tmp = tempfile::NamedTempFile::new()?;
+    let f = tmp.reopen()?;
+    let mut writer = hound::WavWriter::new(
+        BufWriter::new(f),
+        hound::WavSpec {
+            channels: 1,
+            sample_rate: SAMPLE_RATE,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    for &s in samples {
+        writer
+            .write_sample(s)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    }
+    writer
+        .finalize()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    // keep() prevents auto-delete on drop; Python deletes after transcription
+    let (_, path) = tmp
+        .keep()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    Ok(path)
+}
+
+/// Starts cpal audio capture and a processing thread.
+/// The processing thread:
+///   - Emits Level updates to the TUI every 100 ms
+///   - Accumulates 5-second chunks, writes each as a WAV temp file,
+///     and sends the path to Python's stdin for transcription.
+/// Returns the cpal Stream (must stay alive for the duration of recording).
+fn spawn_audio(
+    tx: Sender<Update>,
+    python_stdin: std::process::ChildStdin,
+    running: Arc<AtomicBool>,
+) -> cpal::Stream {
+    let shared: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
+    let shared_cb = shared.clone();
+
+    let stream = quiet_stderr(|| {
+        let device = find_pipewire_device();
+        let config = cpal::StreamConfig {
+            channels: 1,
+            sample_rate: cpal::SampleRate(SAMPLE_RATE),
+            buffer_size: cpal::BufferSize::Default,
+        };
+        device
+            .build_input_stream(
+                &config,
+                move |data: &[i16], _| {
+                    shared_cb.lock().unwrap().extend_from_slice(data);
+                },
+                |e| eprintln!("[voice-ambient] audio error: {e}"),
+                None,
+            )
+            .expect("failed to build audio stream")
+    });
+    quiet_stderr(|| stream.play().expect("failed to start audio stream"));
+
+    thread::spawn(move || {
+        let mut stdin_writer = BufWriter::new(python_stdin);
+        let mut chunk_buf: Vec<i16> = Vec::new();
+        let mut level_last = Instant::now();
+
+        while running.load(Ordering::Relaxed) {
+            thread::sleep(Duration::from_millis(20));
+
+            // Drain new samples collected by the cpal callback
+            let new_samples: Vec<i16> = {
+                let mut guard = shared.lock().unwrap();
+                std::mem::take(&mut *guard)
+            };
+
+            if !new_samples.is_empty() {
+                chunk_buf.extend_from_slice(&new_samples);
+
+                // Level update every ~100 ms
+                if level_last.elapsed() >= LEVEL_INTERVAL {
+                    let rms = rms_f64(&new_samples);
+                    let _ = tx.send(Update::Level(rms));
+                    level_last = Instant::now();
+                }
+            }
+
+            // Drain completed 5-second chunks → WAV file → send path to Python
+            while chunk_buf.len() >= CHUNK_SAMPLES {
+                let chunk: Vec<i16> = chunk_buf.drain(..CHUNK_SAMPLES).collect();
+                match write_chunk_wav(&chunk) {
+                    Ok(path) => {
+                        if writeln!(stdin_writer, "{}", path.display()).is_err()
+                            || stdin_writer.flush().is_err()
+                        {
+                            return; // Python stdin closed
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Update::Status(format!("chunk error: {e}")));
+                    }
+                }
+            }
+        }
+        // Close Python's stdin gracefully → Python's for-loop exits → emits done
+        drop(stdin_writer);
+    });
+
+    stream
+}
+
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 fn ui(frame: &mut Frame, app: &App) {
@@ -246,13 +405,11 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_audio(frame: &mut Frame, app: &App, area: Rect) {
-    // Split into sparkline (top 2 rows) + gauge (bottom 2 rows)
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(2), Constraint::Length(2)])
         .split(area);
 
-    // Scrolling waveform — the "waterfall": oldest sample on left, newest on right
     frame.render_widget(
         Sparkline::default()
             .block(
@@ -265,7 +422,6 @@ fn draw_audio(frame: &mut Frame, app: &App, area: Rect) {
         rows[0],
     );
 
-    // Current level gauge with colour zones
     let pct = (app.current_rms * 100.0).min(100.0) as u16;
     let bar_color = if pct > 75 {
         Color::Red
@@ -287,8 +443,6 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
     let height = area.height.saturating_sub(2) as usize;
     let now = Instant::now();
 
-    // Show the last `height` utterances; newest at bottom, oldest at top.
-    // Age-based fade: cyan → white → gray → dark-gray as utterances recede.
     let items: Vec<ListItem> = app
         .utterances
         .iter()
@@ -380,6 +534,9 @@ fn main() -> io::Result<()> {
     let python   = get_arg("--python").unwrap_or_default();
     let db_path  = get_arg("--db");
     let no_save  = args.contains(&"--no-save".to_string());
+    let model    = get_arg("--model")
+        .or_else(|| std::env::var("VOICE_WHISPER_MODEL").ok())
+        .unwrap_or_else(|| "large-v3".to_string());
 
     let transcript_path: Option<String> = if no_save {
         None
@@ -391,19 +548,29 @@ fn main() -> io::Result<()> {
         Some(format!("{}/{}.txt", dir, ts))
     };
 
-    // ── Spawn Python subprocess ───────────────────────────────────────────────
+    // ── Spawn Python inference daemon ─────────────────────────────────────────
+    // stdin: Rust sends WAV file paths (one per line)
+    // stdout: Python emits JSON (status, utterance, done)
     let mut child: Child = Command::new(&python)
         .arg(&script)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        .env("VOICE_WHISPER_MODEL", &model)
+        .env("LD_LIBRARY_PATH", "/usr/lib/ollama")
         .spawn()
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
+    let child_stdin  = child.stdin.take().unwrap();
     let child_stdout = child.stdout.take().unwrap();
 
-    // ── Start reader thread ───────────────────────────────────────────────────
+    // ── Reader thread: parse Python JSON → Update channel ────────────────────
     let (tx, rx): (Sender<Update>, Receiver<Update>) = mpsc::channel();
-    spawn_reader(child_stdout, tx, db_path.clone(), transcript_path.clone());
+    spawn_reader(child_stdout, tx.clone(), db_path.clone(), transcript_path.clone());
+
+    // ── Audio capture: cpal → RMS → 5s WAV chunks → Python stdin ─────────────
+    let running = Arc::new(AtomicBool::new(true));
+    let _stream = spawn_audio(tx, child_stdin, running.clone());
 
     // ── Terminal setup ────────────────────────────────────────────────────────
     enable_raw_mode()?;
@@ -415,7 +582,6 @@ fn main() -> io::Result<()> {
 
     // ── Render loop ───────────────────────────────────────────────────────────
     'main: loop {
-        // Drain all pending updates from reader thread
         loop {
             match rx.try_recv() {
                 Ok(Update::Status(msg))           => app.status_msg = msg,
@@ -426,7 +592,6 @@ fn main() -> io::Result<()> {
             }
         }
 
-        // Toggle REC blink every 500 ms
         if app.last_blink.elapsed() > Duration::from_millis(500) {
             app.blink = !app.blink;
             app.last_blink = Instant::now();
@@ -434,7 +599,6 @@ fn main() -> io::Result<()> {
 
         terminal.draw(|f| ui(f, &app))?;
 
-        // Keyboard: q, Esc, or Ctrl-C quit
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(k) = event::read()? {
                 match (k.code, k.modifiers) {
@@ -448,9 +612,13 @@ fn main() -> io::Result<()> {
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
+    // Signal audio thread to stop (closes Python stdin → Python emits done + exits)
+    running.store(false, Ordering::Relaxed);
+
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
+
     child.kill().ok();
     child.wait().ok();
 

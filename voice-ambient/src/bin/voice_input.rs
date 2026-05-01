@@ -1,14 +1,11 @@
-/// voice-input — Rust replacement for voice-input.sh
+/// voice-input — push-to-talk speech-to-text using in-process whisper-rs inference.
 ///
-/// Push-to-talk speech-to-text using cpal (audio), hound (WAV), rodio (beeps),
-/// arboard (clipboard), enigo (xdotool replacement), and faster-whisper (Python).
-///
-/// Device: PipeWire ALSA "pipewire" virtual device → UC03 USB headset at 32 kHz mono.
+/// Records from the PipeWire ALSA virtual device (UC03 USB headset at 32 kHz mono),
+/// resamples 32 kHz → 16 kHz, and transcribes with whisper.cpp via whisper-rs.
 use std::env;
 use std::fs;
-use std::io::{BufWriter, Read};
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -19,7 +16,7 @@ use crossbeam_channel::bounded;
 use enigo::{Enigo, Keyboard, Settings};
 use rodio::buffer::SamplesBuffer;
 use rodio::OutputStream;
-use tempfile::NamedTempFile;
+use voice_ambient::whisper_infer;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -28,8 +25,6 @@ const SAMPLE_RATE: u32 = 32_000;
 const BEEP_LOW_HZ: f32 = 480.0;
 const BEEP_HIGH_HZ: f32 = 880.0;
 const BEEP_DURATION_SECS: f32 = 0.15;
-
-// The PipeWire ALSA virtual device — routes to WirePlumber default source (UC03).
 const PIPEWIRE_DEVICE: &str = "pipewire";
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
@@ -56,9 +51,9 @@ struct Args {
     #[arg(long, default_value = "large-v3")]
     model: String,
 
-    /// Disable fancy animated output for --mode=print
+    /// Override GGML model file path (default: ~/.cache/whisper/ggml-<model>.bin)
     #[arg(long)]
-    no_fancy: bool,
+    model_path: Option<PathBuf>,
 
     /// After --mode=type, send Return keystroke (auto-submit)
     #[arg(long)]
@@ -71,6 +66,14 @@ struct Args {
     /// [ambient] SQLite DB path for session logging
     #[arg(long)]
     db: Option<PathBuf>,
+}
+
+impl Args {
+    fn resolved_model_path(&self) -> PathBuf {
+        self.model_path
+            .clone()
+            .unwrap_or_else(|| whisper_infer::default_model_path(&self.model))
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -88,20 +91,18 @@ fn main() {
 
     eprintln!("[voice-input] Recording… press Enter to stop (auto-stop at {}s)", MAX_RECORD_SECS);
 
-    // Capture audio
-    let wav_file = record_to_wav().expect("audio capture failed");
+    let samples = record_samples().expect("audio capture failed");
 
     // Beep: high tone → recording stopped
     play_beep(BEEP_HIGH_HZ, BEEP_DURATION_SECS);
 
-    // For --mode=print: transcription already printed to stdout by subprocess; we're done.
-    if args.mode == Mode::Print {
-        let _ = transcribe(&wav_file.path().to_path_buf(), &args);
-        return;
-    }
+    eprintln!("[voice-input] Transcribing ({} samples at {} Hz)…", samples.len(), SAMPLE_RATE);
 
-    // For --clip and --type: capture stdout as plain text
-    let text = transcribe(&wav_file.path().to_path_buf(), &args).unwrap_or_default();
+    let model_path = args.resolved_model_path();
+    let ctx = whisper_infer::load_ctx(model_path.to_str().unwrap_or(""));
+
+    let text = whisper_infer::transcribe_i16(&ctx, &samples)
+        .unwrap_or_default();
     let text = text.trim().to_string();
 
     if text.is_empty() {
@@ -110,6 +111,9 @@ fn main() {
     }
 
     match args.mode {
+        Mode::Print => {
+            println!("{}", text);
+        }
         Mode::Type => {
             let mut enigo = Enigo::new(&Settings::default()).expect("enigo init failed");
             enigo.text(&text).expect("enigo text failed");
@@ -123,14 +127,12 @@ fn main() {
             cb.set_text(&text).expect("clipboard write failed");
             eprintln!("[voice-input] Copied {} chars to clipboard", text.len());
         }
-        Mode::Print | Mode::Ambient => unreachable!(),
+        Mode::Ambient => unreachable!(),
     }
 }
 
 // ── Audio recording ───────────────────────────────────────────────────────────
 
-/// Suppress ALSA/JACK probe noise for the duration of f().
-/// Saves fd 2, redirects to /dev/null, runs f(), then restores.
 fn with_quiet_stderr<F: FnOnce() -> T, T>(f: F) -> T {
     unsafe {
         let null = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_WRONLY);
@@ -145,7 +147,6 @@ fn with_quiet_stderr<F: FnOnce() -> T, T>(f: F) -> T {
 }
 
 fn find_pipewire_device() -> cpal::Device {
-    // Both default_host() and input_devices() generate ALSA/JACK noise — suppress all of it.
     with_quiet_stderr(|| {
         let host = cpal::default_host();
         host.input_devices()
@@ -157,7 +158,7 @@ fn find_pipewire_device() -> cpal::Device {
     })
 }
 
-fn record_to_wav() -> Result<NamedTempFile, Box<dyn std::error::Error>> {
+fn record_samples() -> Result<Vec<i16>, Box<dyn std::error::Error>> {
     let device = find_pipewire_device();
     let config = cpal::StreamConfig {
         channels: 1,
@@ -168,7 +169,6 @@ fn record_to_wav() -> Result<NamedTempFile, Box<dyn std::error::Error>> {
     let samples: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
     let samples_writer = samples.clone();
 
-    // Channel: either timer or Enter press stops recording
     let (tx_stop, rx_stop) = bounded::<()>(1);
 
     // Timer thread
@@ -178,17 +178,16 @@ fn record_to_wav() -> Result<NamedTempFile, Box<dyn std::error::Error>> {
         let _ = tx_timer.send(());
     });
 
-    // Enter-key thread (reads from /dev/tty)
+    // Enter-key thread
     let tx_enter = tx_stop.clone();
     std::thread::spawn(move || {
         if let Ok(mut tty) = fs::File::open("/dev/tty") {
             let mut buf = [0u8; 1];
-            let _ = tty.read(&mut buf); // block until any byte (Enter)
+            let _ = tty.read(&mut buf);
             let _ = tx_enter.send(());
         }
     });
 
-    // Build and start cpal stream (stream open may also generate ALSA noise)
     let stream = with_quiet_stderr(|| {
         device.build_input_stream(
             &config,
@@ -201,117 +200,14 @@ fn record_to_wav() -> Result<NamedTempFile, Box<dyn std::error::Error>> {
     })?;
     with_quiet_stderr(|| stream.play())?;
 
-    // Block until stop signal
     let _ = rx_stop.recv();
     drop(stream);
 
-    // Encode to WAV in a temp file
-    let captured = samples.lock().unwrap();
+    let captured = samples.lock().unwrap().clone();
     let secs = captured.len() as f32 / SAMPLE_RATE as f32;
     eprintln!("[voice-input] Captured {:.1}s ({} samples)", secs, captured.len());
 
-    let tmp = NamedTempFile::new()?;
-    let f = tmp.reopen()?;
-    let mut writer = hound::WavWriter::new(
-        BufWriter::new(f),
-        hound::WavSpec {
-            channels: 1,
-            sample_rate: SAMPLE_RATE,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )?;
-    for &s in captured.iter() {
-        writer.write_sample(s)?;
-    }
-    writer.finalize()?;
-
-    Ok(tmp)
-}
-
-// ── Transcription ─────────────────────────────────────────────────────────────
-
-fn locate_transcribe_py() -> PathBuf {
-    // Look relative to this binary's path, then fall back to PATH
-    let exe = env::current_exe().unwrap_or_default();
-    let project_root = exe
-        .parent() // target/release or target/debug
-        .and_then(|p| p.parent()) // target
-        .and_then(|p| p.parent()); // project root
-
-    if let Some(root) = project_root {
-        let candidate = root.parent().unwrap_or(root).join("transcribe.py");
-        if candidate.exists() {
-            return candidate;
-        }
-        // voice-ambient/target/… → project root is one more up
-        let candidate2 = root
-            .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.join("transcribe.py"));
-        if let Some(c) = candidate2 {
-            if c.exists() {
-                return c;
-            }
-        }
-    }
-    PathBuf::from("transcribe.py")
-}
-
-fn locate_python() -> PathBuf {
-    let venv = PathBuf::from("/home/jeb/programs/python_programs/venv/bin/python3");
-    if venv.exists() {
-        return venv;
-    }
-    PathBuf::from("python3")
-}
-
-fn transcribe(wav: &PathBuf, args: &Args) -> Result<String, Box<dyn std::error::Error>> {
-    let script = locate_transcribe_py();
-    let python = locate_python();
-
-    // Choose output mode for transcribe.py
-    let mode_flag = if args.mode == Mode::Print && !args.no_fancy {
-        "--fancy"
-    } else if args.mode == Mode::Print {
-        "--dual"
-    } else {
-        // --clip and --type both need plain text
-        ""
-    };
-
-    let mut cmd = Command::new(&python);
-    cmd.arg(&script)
-        .arg(wav)
-        .env("LD_LIBRARY_PATH", "/usr/lib/ollama")
-        .env("VOICE_WHISPER_MODEL", &args.model);
-
-    if !mode_flag.is_empty() {
-        cmd.arg(mode_flag);
-    }
-
-    // For --print with fancy/dual: inherit stdout so animation renders directly
-    if args.mode == Mode::Print {
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::null());
-        let status = cmd.status()?;
-        if !status.success() {
-            eprintln!("[voice-input] transcribe.py exited with {}", status);
-        }
-        return Ok(String::new()); // output already printed
-    }
-
-    // For --clip and --type: capture stdout as plain text
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-
-    let output = cmd.output()?;
-    if !output.status.success() {
-        eprintln!("[voice-input] transcribe.py exited with {}", output.status);
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(captured)
 }
 
 // ── Beep synthesis ────────────────────────────────────────────────────────────
@@ -322,9 +218,8 @@ fn play_beep(freq_hz: f32, duration_secs: f32) {
     let samples: Vec<f32> = (0..n)
         .map(|i| {
             let t = i as f32 / sample_rate as f32;
-            // Sine wave with 10ms fade-in/out to avoid clicks
             let envelope = {
-                let fade = (sample_rate as f32 * 0.01) as usize; // 10ms
+                let fade = (sample_rate as f32 * 0.01) as usize;
                 if i < fade {
                     i as f32 / fade as f32
                 } else if i > n - fade {
@@ -337,7 +232,6 @@ fn play_beep(freq_hz: f32, duration_secs: f32) {
         })
         .collect();
 
-    // OutputStream::try_default() also generates ALSA/JACK noise
     with_quiet_stderr(|| {
         if let Ok((_stream, handle)) = OutputStream::try_default() {
             if let Ok(sink) = rodio::Sink::try_new(&handle) {
@@ -351,7 +245,6 @@ fn play_beep(freq_hz: f32, duration_secs: f32) {
 // ── Ambient mode ──────────────────────────────────────────────────────────────
 
 fn run_ambient(args: &Args) {
-    // Locate the voice-ambient binary (built alongside this one)
     let exe = env::current_exe().unwrap_or_default();
     let bin_dir = exe.parent().unwrap_or(exe.as_path());
     let ambient_bin = bin_dir.join("voice-ambient");
@@ -365,27 +258,12 @@ fn run_ambient(args: &Args) {
         std::process::exit(1);
     }
 
-    // ambient_infer.py is the Tier 2 inference-only daemon (no parec/sox)
-    let script = locate_transcribe_py()
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .join("ambient_infer.py");
-    // Fall back to ambient.py if ambient_infer.py not found yet
-    let script = if script.exists() {
-        script
-    } else {
-        locate_transcribe_py()
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("ambient.py")
-    };
-    let python = locate_python();
+    let model_path = args.resolved_model_path();
 
-    let mut cmd = Command::new(&ambient_bin);
-    cmd.arg("--script").arg(&script)
-        .arg("--python").arg(&python)
-        .arg("--model").arg(&args.model)
-        .env("VOICE_WHISPER_MODEL", &args.model);
+    let mut cmd = std::process::Command::new(&ambient_bin);
+    cmd.arg("--model").arg(&args.model)
+       .arg("--model-path").arg(&model_path)
+       .env("VOICE_WHISPER_MODEL", &args.model);
 
     if let Some(db) = &args.db {
         cmd.arg("--db").arg(db);
@@ -394,7 +272,6 @@ fn run_ambient(args: &Args) {
         cmd.arg("--no-save");
     }
 
-    // exec-replace this process with voice-ambient
     use std::os::unix::process::CommandExt;
     let err = cmd.exec();
     eprintln!("[voice-input] exec failed: {err}");

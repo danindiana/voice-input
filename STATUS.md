@@ -79,6 +79,24 @@ pactl set-source-volume alsa_input.usb-UC03_UC03-00.mono-fallback 100%
 
 ## Session Log
 
+### 2026-05-01 (Thu May 1 02:00 CDT)
+
+**Change: Tier 3 complete — whisper-rs replaces Python entirely**
+
+- **`src/lib.rs`** (new): exposes `pub mod whisper_infer`
+- **`src/whisper_infer.rs`** (new): `load_ctx()` (GPU→CPU fallback via `WhisperContextParameters::use_gpu`), `transcribe_i16()` (32 kHz i16 → rubato sinc resample → 16 kHz f32 → whisper.cpp), `default_model_path()` (`~/.cache/whisper/ggml-<model>.bin`)
+- **`.cargo/config.toml`** (new): `CMAKE_CUDA_COMPILER=/usr/local/cuda-13.0/bin/nvcc`; rustflags linker search `/usr/local/cuda-13.0/lib64`
+- **`Cargo.toml`**: `whisper-rs = { version = "0.14", features = ["cuda"] }` — enables GGML_CUDA cmake flag + links cublas/cudart/cublasLt
+- **`src/main.rs`** (voice-ambient): removed Python subprocess spawn + JSON IPC; `spawn_audio()` sends `Vec<i16>` chunks via `sync_channel(2)` to new `spawn_whisper()` inference thread (loads model, transcribes, writes DB/transcript, sends `Update::Utterance`)
+- **`src/bin/voice_input.rs`**: records directly to `Vec<i16>`; calls `whisper_infer::load_ctx()` + `transcribe_i16()` inline; no temp WAV files; `run_ambient()` passes `--model-path` to voice-ambient binary
+- **Runtime**: CUDA 13 libs (`libcublas.so.13`) in system ldconfig — no `LD_LIBRARY_PATH` needed
+- **Model**: `~/.cache/whisper/ggml-large-v3.bin` (3095033483 bytes) — GGML format, different from HuggingFace safetensors
+- **Symlink**: `/usr/local/bin/voice-input` → `voice-ambient/target/release/voice-input`
+
+Confirmed end-to-end: binary captures audio → whisper-rs CUDA inference → text output. Python/faster-whisper no longer invoked.
+
+---
+
 ### 2026-04-30 (Thu Apr 30 11:25 CDT, session 3)
 
 **Change: default model → large-v3; --model flag; session doc**
@@ -120,7 +138,7 @@ in the shell script, so they don't contaminate captured `$TEXT`.
 
 - [ ] Global hotkey via `xbindkeys` — launch without second terminal
 - [ ] Normalize mic gain after confirming no clipping
-- [ ] **Tier 3**: download `ggml-large-v3.bin` + integrate whisper-rs (eliminate Python entirely)
+- [x] **Tier 3**: whisper-rs CUDA inference — `ggml-large-v3.bin` + whisper.cpp statically compiled; Python eliminated entirely
 - [x] Auto-submit mode — `voice-input --type --submit` sends Return after xdotool types
 - [x] Configurable model — set `VOICE_WHISPER_MODEL=large-v3` env var to try large-v3
 - [x] Ambient transcript auto-save — each session writes to `~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt` by default; use `--no-save` to disable; footer shows `SAVE: <filename>`

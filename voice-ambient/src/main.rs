@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 use std::fs;
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
-use std::process::{Child, Command, Stdio};
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -22,7 +21,8 @@ use ratatui::{
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Sparkline},
     Frame, Terminal,
 };
-use serde::Deserialize;
+
+use voice_ambient::whisper_infer;
 
 // ── Audio constants ───────────────────────────────────────────────────────────
 
@@ -30,17 +30,6 @@ const SAMPLE_RATE: u32 = 32_000;
 const CHUNK_SAMPLES: usize = SAMPLE_RATE as usize * 5;   // 5-second transcription window
 const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
 const PIPEWIRE_DEVICE: &str = "pipewire";
-
-// ── Messages from Python ──────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum Msg {
-    Status { msg: String },
-    Level { rms: f64 },
-    Utterance { text: String, ts: String },
-    Done,
-}
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
@@ -92,7 +81,6 @@ impl App {
     fn push_utterance(&mut self, ts: String, text: String) {
         self.word_count += text.split_whitespace().count() as u64;
         self.utt_count += 1;
-        // ISO 8601 → local HH:MM:SS display (chars 11-19 of UTC string)
         let ts_display = ts.get(11..19).unwrap_or(&ts).to_string();
         self.utterances.push_back(Utterance {
             timestamp: ts_display,
@@ -144,15 +132,21 @@ fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
-// ── Reader thread ─────────────────────────────────────────────────────────────
+// ── Whisper inference thread ──────────────────────────────────────────────────
 
-fn spawn_reader(
-    stdout: std::process::ChildStdout,
+fn spawn_whisper(
+    model_path: String,
+    chunk_rx: std::sync::mpsc::Receiver<Vec<i16>>,
     tx: Sender<Update>,
     db_path: Option<String>,
     transcript_path: Option<String>,
-) {
+) -> thread::JoinHandle<()> {
     thread::spawn(move || {
+        let _ = tx.send(Update::Status(format!("Loading whisper model: {}", model_path)));
+
+        let ctx = whisper_infer::load_ctx(&model_path);
+        let _ = tx.send(Update::Status("Recording".to_string()));
+
         let conn = db_path.as_deref().and_then(|p| open_db(p).ok());
         let mut transcript_file = transcript_path.as_deref().and_then(|p| {
             fs::OpenOptions::new().create(true).append(true).open(p).ok()
@@ -166,55 +160,40 @@ fn spawn_reader(
             c.last_insert_rowid()
         });
 
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => break,
-            };
-            let msg: Msg = match serde_json::from_str(&line) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-            let update = match msg {
-                Msg::Status { msg } => Update::Status(msg),
-                Msg::Level { rms } => Update::Level(rms),
-                Msg::Utterance { text, ts } => {
-                    if let Some(ref c) = conn {
-                        let wc = text.split_whitespace().count() as i64;
-                        let _ = c.execute(
-                            "INSERT INTO utterances \
-                             (session_id, recorded_at, text, word_count) \
-                             VALUES (?1, ?2, ?3, ?4)",
-                            rusqlite::params![session_id, ts, text, wc],
-                        );
-                    }
-                    if let Some(ref mut f) = transcript_file {
-                        let ts_display = ts.get(11..19).unwrap_or(&ts);
-                        let _ = writeln!(f, "[{}] {}", ts_display, text);
-                    }
-                    Update::Utterance { ts, text }
+        for chunk in chunk_rx {
+            if let Some(text) = whisper_infer::transcribe_i16(&ctx, &chunk) {
+                let ts = now_iso();
+                if let Some(ref c) = conn {
+                    let wc = text.split_whitespace().count() as i64;
+                    let _ = c.execute(
+                        "INSERT INTO utterances \
+                         (session_id, recorded_at, text, word_count) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        rusqlite::params![session_id, ts, text, wc],
+                    );
                 }
-                Msg::Done => {
-                    if let Some(ref c) = conn {
-                        let _ = c.execute(
-                            "UPDATE sessions SET ended_at = ?1 WHERE id = ?2",
-                            rusqlite::params![now_iso(), session_id],
-                        );
-                    }
-                    let _ = tx.send(Update::Quit);
-                    return;
+                if let Some(ref mut f) = transcript_file {
+                    let ts_display = ts.get(11..19).unwrap_or(&ts);
+                    let _ = writeln!(f, "[{}] {}", ts_display, text);
                 }
-            };
-            if tx.send(update).is_err() {
-                break;
+                if tx.send(Update::Utterance { ts, text }).is_err() {
+                    break;
+                }
             }
         }
+
+        if let Some(ref c) = conn {
+            let _ = c.execute(
+                "UPDATE sessions SET ended_at = ?1 WHERE id = ?2",
+                rusqlite::params![now_iso(), session_id],
+            );
+        }
+
         let _ = tx.send(Update::Quit);
-    });
+    })
 }
 
-// ── Audio capture (Tier 2) ────────────────────────────────────────────────────
+// ── Audio capture ─────────────────────────────────────────────────────────────
 
 fn quiet_stderr<F: FnOnce() -> T, T>(f: F) -> T {
     unsafe {
@@ -247,43 +226,12 @@ fn rms_f64(samples: &[i16]) -> f64 {
     ((sum_sq / samples.len() as f64).sqrt() / 32768.0).min(1.0)
 }
 
-fn write_chunk_wav(samples: &[i16]) -> io::Result<std::path::PathBuf> {
-    let tmp = tempfile::NamedTempFile::new()?;
-    let f = tmp.reopen()?;
-    let mut writer = hound::WavWriter::new(
-        BufWriter::new(f),
-        hound::WavSpec {
-            channels: 1,
-            sample_rate: SAMPLE_RATE,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        },
-    )
-    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-    for &s in samples {
-        writer
-            .write_sample(s)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-    }
-    writer
-        .finalize()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-    // keep() prevents auto-delete on drop; Python deletes after transcription
-    let (_, path) = tmp
-        .keep()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-    Ok(path)
-}
-
 /// Starts cpal audio capture and a processing thread.
-/// The processing thread:
-///   - Emits Level updates to the TUI every 100 ms
-///   - Accumulates 5-second chunks, writes each as a WAV temp file,
-///     and sends the path to Python's stdin for transcription.
-/// Returns the cpal Stream (must stay alive for the duration of recording).
+/// The processing thread emits Level updates every 100 ms and sends 5-second
+/// chunks of i16 samples to `chunk_tx` for in-process whisper transcription.
 fn spawn_audio(
     tx: Sender<Update>,
-    python_stdin: std::process::ChildStdin,
+    chunk_tx: std::sync::mpsc::SyncSender<Vec<i16>>,
     running: Arc<AtomicBool>,
 ) -> cpal::Stream {
     let shared: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::new()));
@@ -310,14 +258,12 @@ fn spawn_audio(
     quiet_stderr(|| stream.play().expect("failed to start audio stream"));
 
     thread::spawn(move || {
-        let mut stdin_writer = BufWriter::new(python_stdin);
         let mut chunk_buf: Vec<i16> = Vec::new();
         let mut level_last = Instant::now();
 
         while running.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(20));
 
-            // Drain new samples collected by the cpal callback
             let new_samples: Vec<i16> = {
                 let mut guard = shared.lock().unwrap();
                 std::mem::take(&mut *guard)
@@ -326,33 +272,21 @@ fn spawn_audio(
             if !new_samples.is_empty() {
                 chunk_buf.extend_from_slice(&new_samples);
 
-                // Level update every ~100 ms
                 if level_last.elapsed() >= LEVEL_INTERVAL {
-                    let rms = rms_f64(&new_samples);
-                    let _ = tx.send(Update::Level(rms));
+                    let _ = tx.send(Update::Level(rms_f64(&new_samples)));
                     level_last = Instant::now();
                 }
             }
 
-            // Drain completed 5-second chunks → WAV file → send path to Python
+            // Send completed 5-second chunks to whisper thread
             while chunk_buf.len() >= CHUNK_SAMPLES {
                 let chunk: Vec<i16> = chunk_buf.drain(..CHUNK_SAMPLES).collect();
-                match write_chunk_wav(&chunk) {
-                    Ok(path) => {
-                        if writeln!(stdin_writer, "{}", path.display()).is_err()
-                            || stdin_writer.flush().is_err()
-                        {
-                            return; // Python stdin closed
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Update::Status(format!("chunk error: {e}")));
-                    }
+                if chunk_tx.send(chunk).is_err() {
+                    return;
                 }
             }
         }
-        // Close Python's stdin gracefully → Python's for-loop exits → emits done
-        drop(stdin_writer);
+        // chunk_tx drops here → whisper thread's recv loop ends
     });
 
     stream
@@ -530,13 +464,18 @@ fn main() -> io::Result<()> {
             .map(|w| w[1].clone())
     };
 
-    let script   = get_arg("--script").unwrap_or_default();
-    let python   = get_arg("--python").unwrap_or_default();
     let db_path  = get_arg("--db");
     let no_save  = args.contains(&"--no-save".to_string());
-    let model    = get_arg("--model")
+    let model_name = get_arg("--model")
         .or_else(|| std::env::var("VOICE_WHISPER_MODEL").ok())
         .unwrap_or_else(|| "large-v3".to_string());
+
+    let model_path = get_arg("--model-path")
+        .unwrap_or_else(|| {
+            whisper_infer::default_model_path(&model_name)
+                .to_string_lossy()
+                .into_owned()
+        });
 
     let transcript_path: Option<String> = if no_save {
         None
@@ -548,29 +487,24 @@ fn main() -> io::Result<()> {
         Some(format!("{}/{}.txt", dir, ts))
     };
 
-    // ── Spawn Python inference daemon ─────────────────────────────────────────
-    // stdin: Rust sends WAV file paths (one per line)
-    // stdout: Python emits JSON (status, utterance, done)
-    let mut child: Child = Command::new(&python)
-        .arg(&script)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .env("VOICE_WHISPER_MODEL", &model)
-        .env("LD_LIBRARY_PATH", "/usr/lib/ollama")
-        .spawn()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-    let child_stdin  = child.stdin.take().unwrap();
-    let child_stdout = child.stdout.take().unwrap();
-
-    // ── Reader thread: parse Python JSON → Update channel ────────────────────
+    // ── Channels ──────────────────────────────────────────────────────────────
     let (tx, rx): (Sender<Update>, Receiver<Update>) = mpsc::channel();
-    spawn_reader(child_stdout, tx.clone(), db_path.clone(), transcript_path.clone());
+    // Bounded chunk channel: audio → whisper. Buffer=2 to absorb one chunk queued
+    // while the previous is being processed.
+    let (chunk_tx, chunk_rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(2);
 
-    // ── Audio capture: cpal → RMS → 5s WAV chunks → Python stdin ─────────────
+    // ── Whisper inference thread ──────────────────────────────────────────────
+    let whisper_handle = spawn_whisper(
+        model_path,
+        chunk_rx,
+        tx.clone(),
+        db_path.clone(),
+        transcript_path.clone(),
+    );
+
+    // ── Audio capture ─────────────────────────────────────────────────────────
     let running = Arc::new(AtomicBool::new(true));
-    let _stream = spawn_audio(tx, child_stdin, running.clone());
+    let _stream = spawn_audio(tx, chunk_tx, running.clone());
 
     // ── Terminal setup ────────────────────────────────────────────────────────
     enable_raw_mode()?;
@@ -612,15 +546,14 @@ fn main() -> io::Result<()> {
     }
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
-    // Signal audio thread to stop (closes Python stdin → Python emits done + exits)
     running.store(false, Ordering::Relaxed);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    child.kill().ok();
-    child.wait().ok();
+    // Wait for whisper thread to finish current transcription and close DB cleanly.
+    let _ = whisper_handle.join();
 
     Ok(())
 }

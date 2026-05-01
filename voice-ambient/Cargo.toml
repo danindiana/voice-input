@@ -36,3 +36,6 @@ signal-hook        = "0.3"
 crossbeam-channel  = "0.5"
 libc               = "0.2"
 tempfile     = "3"
+
+# Tier 3: Whisper inference (whisper.cpp bindings with CUDA)
+whisper-rs   = { version = "0.14", features = ["cuda"] }

@@ -4,7 +4,9 @@
   <img src="voice-input-logo.png" alt="voice-input logo" width="400"/>
 </p>
 
-Push-to-talk speech-to-text for Linux terminals. Captures mic input, transcribes locally via [faster-whisper](https://github.com/SYSTRAN/faster-whisper), and outputs text to stdout, clipboard, or types it directly into the active window. Uses GPU when available, falls back to CPU automatically.
+Push-to-talk speech-to-text for Linux terminals. Captures mic input, transcribes locally via [whisper-rs](https://github.com/tazz4843/whisper-rs) (whisper.cpp bindings with CUDA), and outputs text by typing into the active window, copying to clipboard, printing to stdout, or running a continuous ambient TUI.
+
+Pure Rust — no Python, no subprocess, no venv. One binary.
 
 Built for and tested on: Ubuntu/Debian, PipeWire audio, NVIDIA GPU (optional), UC03 USB headset.
 
@@ -12,247 +14,277 @@ Built for and tested on: Ubuntu/Debian, PipeWire audio, NVIDIA GPU (optional), U
 
 ## Quickstart
 
+**New here? Run the setup wizard first:**
 ```bash
-# 1. Install system dependencies
-sudo apt install sox pipewire-audio-client-libraries xdotool xclip
+voice-wizard
+```
+It checks your system, walks you through the four modes, and builds the exact command to run.
 
-# 2. Install Python dependencies (in your venv)
-pip install -r requirements.txt
-
-# 3. Edit voice-input.sh — set VENV to your Python venv path
-
-# 4. Make executable and put on PATH
-chmod +x voice-input.sh
-sudo ln -sf "$(pwd)/voice-input.sh" /usr/local/bin/voice-input
-
-# 5. Run
-voice-input                     # transcribe → animated display, exit clean (default)
-voice-input --clip              # transcribe → clipboard (Ctrl+Shift+V to paste)
-voice-input --type              # transcribe → xdotool types into active window
-voice-input --print             # transcribe → stdout (animated)
-voice-input --print --no-fancy  # transcribe → stdout (plain)
+**Or jump straight in:**
+```bash
+voice-input --mode type     # speak → transcribe → typed into active window
+voice-input --mode clip     # speak → transcribe → clipboard (Ctrl+Shift+V to paste)
+voice-input --mode print    # speak → transcribe → stdout
+voice-input --mode ambient  # speak continuously → live TUI + transcript log
 ```
 
-Press **Enter** to stop recording early. Auto-stops at 65 seconds.  
-Low beep = recording started. High beep = stopped, transcribing.
+Press **Enter** to stop recording. Auto-stops at 65 seconds.
+Low beep (480 Hz) = recording started. High beep (880 Hz) = stopped, transcribing.
 
 ---
 
 ## Requirements
 
 ### Hardware
-- USB headset or microphone (tested: UC03 USB)
-- NVIDIA GPU with CUDA — optional (tested: RTX 3060 12GB, RTX 3080 10GB); falls back to CPU if unavailable
+- USB headset or microphone (tested: UC03 USB, native rate 32 kHz)
+- NVIDIA GPU with CUDA — optional; whisper-rs falls back to CPU automatically
 
 ### System packages
+```bash
+sudo apt install libxdo-dev
+```
+
 | Package | Purpose |
 |---------|---------|
-| `parec` | PipeWire/PulseAudio capture (part of `pipewire-audio-client-libraries`) |
-| `sox` | Raw PCM → WAV conversion, tone generation |
-| `xdotool` | Types transcribed text into active window |
-| `xclip` | Clipboard output mode |
-| `paplay` | Plays audio feedback beeps |
+| `libxdo-dev` | Build-time dep for enigo (X11 keyboard simulation) |
 
-### Python
-- Python 3.8+
-- See `requirements.txt` — install with `pip install -r requirements.txt`
-- Whisper model (~1.5 GB) downloads automatically on first run to `~/.cache/huggingface/`
+> **Not needed:** sox, parec, xdotool, xclip, paplay, Python, pip — all replaced by Rust crates.
+
+### Rust
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### Whisper model (GGML format)
+```bash
+mkdir -p ~/.cache/whisper
+# Download ggml-large-v3.bin (~3.1 GB) — one-time setup
+# From https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+wget -P ~/.cache/whisper/ https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin
+```
+
+> **Note:** This is GGML format — different from HuggingFace safetensors used by faster-whisper.
+> Other sizes: `ggml-medium.bin`, `ggml-small.bin`, `ggml-base.bin`
 
 ### CUDA (optional)
-- GPU mode requires `libcublas.so.12` — **not** included in standard CUDA 11 installs
-- If you have [Ollama](https://ollama.com) installed, it bundles this at `/usr/lib/ollama/`
-- The script sets `LD_LIBRARY_PATH=/usr/lib/ollama` automatically
-- Alternatively: install CUDA 12 toolkit
-- If CUDA init fails for any reason (GPU absent, OOM, driver issue, contention), `transcribe.py` automatically falls back to CPU with `int8` quantization and logs a warning to stderr
+Requires CUDA 13.0:
+```bash
+ls /usr/local/cuda-13.0/bin/nvcc   # confirm nvcc present
+```
+If absent, whisper-rs compiles and runs on CPU with no code changes.
 
 ---
 
-## Configuration
+## Build
 
-Edit the variables at the top of `voice-input.sh`:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VENV` | `/home/jeb/programs/python_programs/venv` | Path to Python venv |
-| `MIC_SOURCE` | `alsa_input.usb-UC03_UC03-00.mono-fallback` | PipeWire source name |
-| `AUDIO_SINK` | `alsa_output.usb-UC03_UC03-00.analog-stereo` | PipeWire sink for beeps |
-| `MAX_SECONDS` | `65` | Maximum recording window |
-
-Find your mic's PipeWire source name:
 ```bash
-pactl list sources short
+cd ~/Documents/claude_creations/voice-input/voice-ambient
+cargo build --release
+```
+
+Outputs (in `target/release/`):
+
+| Binary | Purpose |
+|--------|---------|
+| `voice-input` | Push-to-talk CLI — all four modes |
+| `voice-ambient` | Continuous ambient TUI (spawned by `--mode ambient`) |
+| `voice-wizard` | 5-page interactive setup wizard |
+| `audio-test` | Device enumeration and capture validation |
+
+**Put binaries on PATH (symlinks):**
+```bash
+sudo ln -sf "$(pwd)/target/release/voice-input"   /usr/local/bin/voice-input
+sudo ln -sf "$(pwd)/target/release/voice-ambient"  /usr/local/bin/voice-ambient
+sudo ln -sf "$(pwd)/target/release/voice-wizard"   /usr/local/bin/voice-wizard
 ```
 
 ---
 
-## Files
+## Modes
 
-| File | Purpose |
-|------|---------|
-| `voice-input.sh` | Main script — records, dispatches, outputs text; routes `--ambient` to Rust TUI |
-| `transcribe.py` | faster-whisper transcription (plain, fancy-animated, dual, timed) |
-| `ambient.py` | Continuous mic capture + transcription worker; emits JSON to Rust TUI |
-| `voice-ambient/` | Rust/Ratatui TUI binary for ambient mode |
-| `requirements.txt` | Frozen Python dependencies |
-| `STATUS.md` | Debug history, build notes, lessons learned |
+### `--mode type` (default)
+Records speech, transcribes, then uses X11 keyboard simulation to type the text into whichever window has focus.
+
+```bash
+voice-input --mode type
+voice-input --mode type --submit   # also sends Return after typing (auto-submit)
+```
+
+### `--mode clip`
+Records speech, transcribes, copies result to X11 clipboard.
+```bash
+voice-input --mode clip
+# then Ctrl+Shift+V to paste
+```
+
+### `--mode print`
+Records speech, transcribes, prints to stdout.
+```bash
+voice-input --mode print
+text=$(voice-input --mode print)   # capture in a variable
+```
+
+### `--mode ambient`
+Spawns the `voice-ambient` TUI — keeps the mic open and transcribes continuously.
+```bash
+voice-input --mode ambient
+voice-input --mode ambient --db ~/transcripts.db   # with SQLite logging
+voice-input --mode ambient --no-save               # disable plain-text auto-save
+```
 
 ---
 
-## Fancy Animated Output
+## Model Selection
 
-By default, `--print` mode uses an animated word-by-word renderer powered by faster-whisper's `word_timestamps=True`:
-
-- Each word prints a placeholder (`___`) as soon as the model starts yielding that segment
-- Scrambled characters cycle in-place (more frames = lower confidence)
-- Word snaps to final text, colored by confidence:
-  - **Bright white** — ≥ 92% confidence
-  - Normal — ≥ 75%
-  - **Yellow** — ≥ 50%
-  - **Red** — < 50%
-- Dim superscript timestamp beside each word: `better¹²·⁹ˢ`
-
-Pass `--no-fancy` to get plain text output instead:
+Default model: `large-v3`. Override per-invocation:
 ```bash
-voice-input --print --no-fancy
+voice-input --mode print --model medium     # faster, ~1.5 GB
+voice-input --mode print --model small      # very fast, ~500 MB
+voice-input --mode print --model-path /path/to/custom.bin
 ```
 
-**Implementation note:** the animation uses `\033[{N}D` (cursor-left by N columns) to overwrite in place. `\033[s/u` (cursor save/restore) fails silently in many terminals (tmux, some VTE-based), causing frames to print sequentially instead of in-place.
-
----
-
-## Build Issues & Lessons Learned
-
-### 1. UC03 native sample rate is 32 kHz — not 16 kHz
-
-Recording at `--rate=16000` caused PipeWire's resampler to produce near-silence (RMS ~0.0005, needed 344× boost). At native `--rate=32000` the signal is healthy.
-
-**Rule:** always check your device's native rate with `pactl list sources` before hardcoding a sample rate. faster-whisper handles 32 kHz input natively.
-
-### 2. libcublas.so.12 missing from system path
-
-faster-whisper (via ctranslate2) requires `libcublas.so.12`. Ubuntu packages typically ship `.so.11`. Ollama bundles `.so.12` at `/usr/lib/ollama/`. The script exports `LD_LIBRARY_PATH=/usr/lib/ollama` to resolve this without a full CUDA 12 install.
-
-### 3. Symlink breaks SCRIPT_DIR resolution
-
-`/usr/local/bin/voice-input` is a symlink. Using `dirname "${BASH_SOURCE[0]}"` resolved to `/usr/local/bin/`, causing `transcribe.py` to not be found. Fixed with:
+Or set a persistent default:
 ```bash
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+export VOICE_WHISPER_MODEL=medium
 ```
 
-### 4. WAV header corruption when killing a sox pipeline
+Model path convention: `~/.cache/whisper/ggml-<model>.bin`
 
-Originally: `parec | sox ... output.wav &` — killing the background job left the WAV header incomplete. Fixed by writing raw PCM to a temp file with parec, then converting with sox after parec exits cleanly.
-
-### 5. Default PipeWire source pointed at motherboard monitor
-
-On first headset plug-in, system default source was `alsa_output.pci-0000_10_00.4.analog-stereo.monitor` (a loopback monitor of the onboard audio output — not a mic). Set correct defaults:
-
-```bash
-pactl set-default-sink alsa_output.usb-UC03_UC03-00.analog-stereo
-pactl set-default-source alsa_input.usb-UC03_UC03-00.mono-fallback
-```
-
-Persisted via WirePlumber config:
-```
-~/.config/wireplumber/wireplumber.conf.d/51-default-audio.conf
-```
-
-### 6. `read` exits immediately when stdin is not a TTY
-
-`read -r _` returned instantly when the script's stdin was not a terminal (e.g. piped or backgrounded). Fixed by reading from `/dev/tty` explicitly:
-```bash
-read -r _ < /dev/tty || true
-```
-
-Combined with a USR1 signal from a background timer to unblock `read` on timeout.
-
----
-
-## Whisper Model
-
-Default model: `faster-whisper medium` (~1.5 GB).
-
-Device selection is automatic: GPU (`float16`) is tried first; CPU (`int8`) is used if GPU init fails.
-
-To switch model size, edit the `load_model()` call in `transcribe.py`:
-```python
-model = load_model("large-v3")  # more accurate, ~3 GB
-model = load_model("small")     # faster, ~500 MB
-model = load_model("medium")    # default
-```
+GPU → CPU fallback is automatic. If CUDA init fails for any reason (GPU absent, OOM, driver contention), whisper-rs retries on CPU.
 
 ---
 
 ## Ambient Mode
 
-`voice-input --ambient` opens a full-screen TUI that keeps the microphone open and transcribes continuously until you press `q`, `Esc`, or `Ctrl-C`.
+`voice-input --mode ambient` opens a full-screen TUI:
 
 ```
 ┌● REC  voice-input : ambient  00:05:23──────────────────────────┐
-│                                                                   │
-│ waveform                                                          │
 │▁▂▄▆▇▇▆▄▃▂▁▁▁▂▃▄▅▆▇▆▅▄▃▂▁▁▁▁▂▃▄▅▅▄▃▂▁▁▁▁▁▁▁▁▂▃▄▅▆▇▇▆▅▄▃▂▁▁▁▁│
 │████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░         │
 ├───────────────────────────────────────────────────────────────────┤
-│ transcript                                                        │
 │ 14:32:01 hello world how are you doing today                      │
 │ 14:32:08 i think we should implement this feature                 │
 │ 14:32:16 that way we can test it properly                         │
 ├───────────────────────────────────────────────────────────────────┤
-│ Recording  │  words: 47  utt: 8  │  DB: off    q / Ctrl-C to stop│
+│ Recording  │  words: 47  utt: 8  │  DB: off  │  q / Ctrl-C: stop │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-**Visual cues:**
-- Waveform sparkline scrolls left as audio arrives (the "waterfall")
-- Level gauge shifts green → yellow → red by amplitude
+- Waveform sparkline + RMS level gauge (green → yellow → red)
 - Transcript lines fade cyan → white → gray → dark-gray as they age
-- REC indicator blinks red while recording
+- REC indicator blinks red while recording; 5-second transcription chunks
 
-**SQLite logging** (`--db <path>`):
-
-```bash
-voice-input --ambient --db ~/transcripts.db
+**Plain-text auto-save** (on by default):
 ```
+~/.local/share/voice-input/transcripts/YYYY-MM-DD_HH-MM-SS.txt
+```
+Each line: `[HH:MM:SS] transcribed text`
 
-Creates (or appends to) an SQLite database:
-
+**SQLite session logging** (`--db <path>`):
+```bash
+voice-input --mode ambient --db ~/transcripts.db
+```
+Schema:
 ```sql
 sessions   (id, started_at, ended_at)
 utterances (id, session_id, recorded_at, text, word_count)
 ```
-
-Query example:
+Query:
 ```bash
 sqlite3 ~/transcripts.db "SELECT recorded_at, text FROM utterances ORDER BY id DESC LIMIT 10;"
 ```
 
-### Building the ambient binary
+---
 
-Requires Rust / Cargo (install via https://rustup.rs if needed):
+## Setup Wizard
+
+`voice-wizard` is an interactive 5-page ratatui TUI that guides first-time setup:
+
+1. **Welcome** — program overview and mode descriptions
+2. **System Check** — GPU/CUDA, whisper model, audio device, binary health
+3. **Mode Select** — pick type / print / clip / ambient with arrow keys
+4. **Options** — toggle per-mode flags; live command preview
+5. **Launch** — copy command to clipboard or exec directly
 
 ```bash
-cd voice-ambient
-cargo build --release
-# binary: voice-ambient/target/release/voice-ambient (~3 MB, statically linked SQLite)
+voice-wizard
 ```
 
-The binary is auto-discovered by `voice-input.sh` at that path. To put it on PATH manually:
+Navigation: `→`/Enter = next, `←` = back, `↑`/`↓` = select, `Space` = toggle option, `q` = quit.
+
+---
+
+## Directory MOTD
+
+`cd`ing into the project directory auto-displays a status banner (binary health, model, mic, quick-ref).
+
+This is wired via a `chpwd` hook in `~/.zshrc` — fires on any `cd` into a directory containing `.motd`.
+
 ```bash
-sudo ln -sf "$(pwd)/voice-ambient/target/release/voice-ambient" /usr/local/bin/voice-ambient
+cd ~/Documents/claude_creations/voice-input
+# → banner displays automatically
+```
+
+---
+
+## File Layout
+
+```
+voice-input/
+├── README.md
+├── STATUS.md
+├── .motd                          ← directory banner (chpwd hook in ~/.zshrc)
+├── voice-ambient/                 ← Rust workspace
+│   ├── Cargo.toml
+│   ├── .cargo/config.toml         ← CUDA 13.0 build config
+│   └── src/
+│       ├── lib.rs                 ← exports whisper_infer module
+│       ├── whisper_infer.rs       ← whisper.cpp wrapper (load, resample, VAD, infer)
+│       ├── main.rs                ← voice-ambient TUI binary
+│       └── bin/
+│           ├── voice_input.rs     ← voice-input CLI binary
+│           ├── voice_wizard.rs    ← voice-wizard setup wizard
+│           └── audio_test.rs      ← cpal device validation tool
+├── sessions/                      ← timestamped session docs
+├── diagrams/                      ← architecture diagrams
+└── motd/                          ← legacy system motd fragment (superseded by .motd)
+```
+
+---
+
+## Hardware Notes
+
+- **UC03 USB headset** native sample rate: **32 kHz mono** — do not force 16 kHz (causes near-silence)
+- **PipeWire source:** `alsa_input.usb-UC03_UC03-00.mono-fallback`
+- **cpal device name:** `"pipewire"` (PipeWire's ALSA virtual device — routes to WirePlumber default source)
+- **Mic gain:** ALSA 127/127 (+23.81 dB) — set during early debug; normalize if clipping observed:
+  ```bash
+  amixer -c 3 sset Mic 100
+  pactl set-source-volume alsa_input.usb-UC03_UC03-00.mono-fallback 100%
+  ```
+- **WirePlumber default source/sink** persisted at:
+  `~/.config/wireplumber/wireplumber.conf.d/51-default-audio.conf`
+
+### Validate audio capture
+```bash
+cd ~/Documents/claude_creations/voice-input/voice-ambient
+./target/release/audio-test
+# captures 5 s from "pipewire" device → /tmp/voice-cpal-test.wav
+# prints RMS level (should be > 0.01 during speech)
 ```
 
 ---
 
 ## Suggested Workflow with Claude Code
 
-Open a split terminal:
+Split terminal:
 - **Left pane:** Claude Code session
-- **Right pane:** `voice-input --clip`
+- **Right pane:** `voice-input --mode type --submit`
 
-Speak → press Enter → `Ctrl+Shift+V` into the Claude Code prompt.
+Speak → press Enter → transcription is typed directly into the Claude Code prompt and submitted.
 
-For longer sessions where you want a transcript log:
+For transcript logging alongside a long session:
 ```bash
-voice-input --ambient --db ~/session-$(date +%Y%m%d).db
+voice-input --mode ambient --db ~/session-$(date +%Y%m%d).db
 ```

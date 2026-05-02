@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# .motd — displayed automatically when you cd into this directory
+# (wired via chpwd hook in ~/.zshrc)
+
+B='\033[1m'; C='\033[0;36m'; G='\033[0;32m'
+Y='\033[1;33m'; R='\033[0;31m'; D='\033[2m'; Z='\033[0m'
+
+# ── header ────────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${B}${C}  🎙  voice-input${Z}  ${D}push-to-talk speech-to-text · whisper-rs CUDA · ratatui TUI${Z}"
+echo -e "  ${D}$(git -C "$(dirname "${BASH_SOURCE[0]}")" log -1 --format='branch: %D  ·  last commit: %h %s' 2>/dev/null)${Z}"
+echo ""
+
+# ── binary health ─────────────────────────────────────────────────────────────
+for bin in voice-input voice-ambient voice-wizard; do
+    path=$(command -v "$bin" 2>/dev/null)
+    if [[ -n "$path" && -x "$path" ]]; then
+        real=$(readlink -f "$path" 2>/dev/null)
+        echo -e "  ${G}[OK]${Z}  ${B}${bin}${Z}  ${D}→ ${real}${Z}"
+    else
+        echo -e "  ${R}[!!]${Z}  ${B}${bin}${Z}  ${Y}not in PATH — rebuild? cargo build --release${Z}"
+    fi
+done
+
+echo ""
+
+# ── whisper model ─────────────────────────────────────────────────────────────
+MODEL="$HOME/.cache/whisper/ggml-large-v3.bin"
+if [[ -f "$MODEL" ]]; then
+    SIZE=$(du -sh "$MODEL" 2>/dev/null | awk '{print $1}')
+    echo -e "  ${G}[OK]${Z}  ${B}ggml-large-v3.bin${Z}  ${D}${SIZE}  ${MODEL}${Z}"
+else
+    echo -e "  ${R}[!!]${Z}  ${B}ggml-large-v3.bin${Z}  ${Y}missing — transcription will fail${Z}"
+    echo -e "        ${D}expected: ${MODEL}${Z}"
+fi
+
+# ── UC03 mic ──────────────────────────────────────────────────────────────────
+MIC="alsa_input.usb-UC03_UC03-00.mono-fallback"
+if pactl list sources short 2>/dev/null | grep -q "$MIC"; then
+    echo -e "  ${G}[OK]${Z}  ${B}UC03 mic${Z}  ${D}PipeWire source present${Z}"
+else
+    echo -e "  ${Y}[--]${Z}  ${B}UC03 mic${Z}  ${D}not detected (headset unplugged?)${Z}"
+fi
+
+echo ""
+
+# ── quick reference ───────────────────────────────────────────────────────────
+echo -e "  ${B}Quick start:${Z}"
+echo -e "    ${C}voice-wizard${Z}               ${D}← start here if you're new${Z}"
+echo -e "    ${C}voice-input --mode type${Z}    ${D}speak → typed into active window${Z}"
+echo -e "    ${C}voice-input --mode clip${Z}    ${D}speak → clipboard${Z}"
+echo -e "    ${C}voice-input --mode print${Z}   ${D}speak → stdout${Z}"
+echo -e "    ${C}voice-input --mode ambient${Z} ${D}speak → continuous TUI + SQLite log${Z}"
+echo ""
+echo -e "  ${D}Rebuild:  cd voice-ambient && cargo build --release${Z}"
+echo ""

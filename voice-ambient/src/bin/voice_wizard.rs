@@ -13,11 +13,12 @@ use crossterm::{
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
+use voice_ambient::theme::{self, Theme, THEMES};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ struct App {
     opt_model_idx: usize,
     opt_cursor: usize,
     launch_msg: Option<String>,
+    theme_idx: usize,
     quit: bool,
 }
 
@@ -92,12 +94,17 @@ impl App {
             opt_model_idx: 0,
             opt_cursor: 0,
             launch_msg: None,
+            theme_idx: theme::load_theme_idx(),
             quit: false,
         }
     }
 
     fn model(&self) -> &str {
         MODELS[self.opt_model_idx]
+    }
+
+    fn theme(&self) -> &'static Theme {
+        &THEMES[self.theme_idx]
     }
 }
 
@@ -271,6 +278,7 @@ fn assemble_command(app: &App) -> String {
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 fn ui(frame: &mut Frame, app: &App) {
+    let t = app.theme();
     let area = frame.area();
     let outer = Layout::default()
         .direction(Direction::Vertical)
@@ -281,18 +289,18 @@ fn ui(frame: &mut Frame, app: &App) {
         ])
         .split(area);
 
-    draw_breadcrumb(frame, app, outer[0]);
+    draw_breadcrumb(frame, app, outer[0], t);
     match &app.page {
-        Page::Welcome     => draw_welcome(frame, outer[1]),
-        Page::SystemCheck => draw_system_check(frame, app, outer[1]),
-        Page::ModeSelect  => draw_mode_select(frame, app, outer[1]),
-        Page::Options     => draw_options(frame, app, outer[1]),
-        Page::Launch      => draw_launch(frame, app, outer[1]),
+        Page::Welcome     => draw_welcome(frame, outer[1], t),
+        Page::SystemCheck => draw_system_check(frame, app, outer[1], t),
+        Page::ModeSelect  => draw_mode_select(frame, app, outer[1], t),
+        Page::Options     => draw_options(frame, app, outer[1], t),
+        Page::Launch      => draw_launch(frame, app, outer[1], t),
     }
-    draw_global_footer(frame, outer[2]);
+    draw_global_footer(frame, outer[2], app, t);
 }
 
-fn draw_breadcrumb(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_breadcrumb(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let steps: &[(&str, &Page)] = &[
         ("1/5 Welcome",      &Page::Welcome),
         ("2/5 System Check", &Page::SystemCheck),
@@ -312,14 +320,14 @@ fn draw_breadcrumb(frame: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<Span> = Vec::new();
     for (i, (label, _)) in steps.iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled(" → ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(" → ", Style::default().fg(t.dim)));
         }
         let style = if i == current_idx {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default().fg(t.primary).add_modifier(Modifier::BOLD)
         } else if i < current_idx {
-            Style::default().fg(Color::Green)
+            Style::default().fg(t.success)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(t.dim)
         };
         spans.push(Span::styled(*label, style));
     }
@@ -328,23 +336,27 @@ fn draw_breadcrumb(frame: &mut Frame, app: &App, area: Rect) {
         Paragraph::new(Line::from(spans)).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_style(Style::default().fg(t.primary)),
         ),
         area,
     );
 }
 
-fn draw_global_footer(frame: &mut Frame, area: Rect) {
+fn draw_global_footer(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
+    let theme_name = app.theme().name;
     frame.render_widget(
-        Paragraph::new(Span::styled(
-            "  q/Esc: quit at any time",
-            Style::default().fg(Color::DarkGray),
-        )),
+        Paragraph::new(Line::from(vec![
+            Span::styled("  q/Esc: quit   ", Style::default().fg(t.dim)),
+            Span::styled("t", Style::default().fg(t.primary).add_modifier(Modifier::BOLD)),
+            Span::styled(": theme [", Style::default().fg(t.dim)),
+            Span::styled(theme_name, Style::default().fg(t.primary).add_modifier(Modifier::BOLD)),
+            Span::styled("]", Style::default().fg(t.dim)),
+        ])),
         area,
     );
 }
 
-fn draw_welcome(frame: &mut Frame, area: Rect) {
+fn draw_welcome(frame: &mut Frame, area: Rect, t: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -358,22 +370,22 @@ fn draw_welcome(frame: &mut Frame, area: Rect) {
         Paragraph::new(vec![
             Line::from(Span::styled(
                 "  voice-input  ·  setup wizard",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default().fg(t.primary).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
             Line::from(Span::styled(
                 "  Push-to-talk speech recognition for Linux terminals.",
-                Style::default().fg(Color::White),
+                Style::default().fg(t.text),
             )),
             Line::from(Span::styled(
                 "  Powered by whisper-rs (whisper.cpp) with CUDA GPU acceleration.",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.dim),
             )),
         ])
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
+                .border_style(Style::default().fg(t.primary))
                 .title(" voice-input wizard "),
         ),
         chunks[0],
@@ -383,31 +395,31 @@ fn draw_welcome(frame: &mut Frame, area: Rect) {
         Paragraph::new(vec![
             Line::from(""),
             Line::from(vec![
-                Span::styled("  This wizard ", Style::default().fg(Color::White)),
-                Span::styled("checks prerequisites", Style::default().fg(Color::Cyan)),
-                Span::styled(", helps you ", Style::default().fg(Color::White)),
-                Span::styled("pick a mode", Style::default().fg(Color::Cyan)),
-                Span::styled(", and ", Style::default().fg(Color::White)),
-                Span::styled("builds the command", Style::default().fg(Color::Cyan)),
-                Span::styled(" to run.", Style::default().fg(Color::White)),
+                Span::styled("  This wizard ", Style::default().fg(t.text)),
+                Span::styled("checks prerequisites", Style::default().fg(t.primary)),
+                Span::styled(", helps you ", Style::default().fg(t.text)),
+                Span::styled("pick a mode", Style::default().fg(t.primary)),
+                Span::styled(", and ", Style::default().fg(t.text)),
+                Span::styled("builds the command", Style::default().fg(t.primary)),
+                Span::styled(" to run.", Style::default().fg(t.text)),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  Modes:  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("type", Style::default().fg(Color::Yellow)),
-                Span::styled(" (→ active window)   ", Style::default().fg(Color::DarkGray)),
-                Span::styled("print", Style::default().fg(Color::Yellow)),
-                Span::styled(" (→ stdout)   ", Style::default().fg(Color::DarkGray)),
-                Span::styled("clip", Style::default().fg(Color::Yellow)),
-                Span::styled(" (→ clipboard)   ", Style::default().fg(Color::DarkGray)),
-                Span::styled("ambient", Style::default().fg(Color::Yellow)),
-                Span::styled(" (continuous TUI)", Style::default().fg(Color::DarkGray)),
+                Span::styled("  Modes:  ", Style::default().fg(t.dim)),
+                Span::styled("type", Style::default().fg(t.secondary)),
+                Span::styled(" (→ active window)   ", Style::default().fg(t.dim)),
+                Span::styled("print", Style::default().fg(t.secondary)),
+                Span::styled(" (→ stdout)   ", Style::default().fg(t.dim)),
+                Span::styled("clip", Style::default().fg(t.secondary)),
+                Span::styled(" (→ clipboard)   ", Style::default().fg(t.dim)),
+                Span::styled("ambient", Style::default().fg(t.secondary)),
+                Span::styled(" (continuous TUI)", Style::default().fg(t.dim)),
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  Audio:  ", Style::default().fg(Color::DarkGray)),
-                Span::styled("press Enter to stop recording", Style::default().fg(Color::White)),
-                Span::styled("  ·  max 65 s  ·  low beep = start, high beep = done", Style::default().fg(Color::DarkGray)),
+                Span::styled("  Audio:  ", Style::default().fg(t.dim)),
+                Span::styled("press Enter to stop recording", Style::default().fg(t.text)),
+                Span::styled("  ·  max 65 s  ·  low beep = start, high beep = done", Style::default().fg(t.dim)),
             ]),
         ]),
         chunks[1],
@@ -416,13 +428,13 @@ fn draw_welcome(frame: &mut Frame, area: Rect) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             "  → / Enter: continue   q: quit",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         )),
         chunks[2],
     );
 }
 
-fn draw_system_check(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_system_check(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -435,16 +447,16 @@ fn draw_system_check(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             "  System Prerequisites",
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.text).add_modifier(Modifier::BOLD),
         )),
         chunks[0],
     );
 
     let items: Vec<ListItem> = app.checks.iter().map(|c| {
         let (glyph, glyph_color) = match c.status {
-            CheckStatus::Pass => ("[OK]", Color::Green),
-            CheckStatus::Warn => ("[!!]", Color::Yellow),
-            CheckStatus::Fail => ("[XX]", Color::Red),
+            CheckStatus::Pass => ("[OK]", t.success),
+            CheckStatus::Warn => ("[!!]", t.warn),
+            CheckStatus::Fail => ("[XX]", t.err),
         };
         ListItem::new(Line::from(vec![
             Span::styled(
@@ -453,11 +465,11 @@ fn draw_system_check(frame: &mut Frame, app: &App, area: Rect) {
             ),
             Span::styled(
                 format!("{:<24}", c.label),
-                Style::default().fg(Color::White),
+                Style::default().fg(t.text),
             ),
             Span::styled(
                 c.detail.as_str(),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.dim),
             ),
         ]))
     }).collect();
@@ -466,7 +478,7 @@ fn draw_system_check(frame: &mut Frame, app: &App, area: Rect) {
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
+                .border_style(Style::default().fg(t.primary))
                 .title(" checks "),
         ),
         chunks[1],
@@ -479,20 +491,20 @@ fn draw_system_check(frame: &mut Frame, app: &App, area: Rect) {
         Paragraph::new(vec![
             Line::from(vec![
                 Span::raw("  "),
-                Span::styled(format!("{} passed  ", pass), Style::default().fg(Color::Green)),
-                Span::styled(format!("{} warning  ", warn), Style::default().fg(Color::Yellow)),
-                Span::styled(format!("{} failed", fail), Style::default().fg(Color::Red)),
+                Span::styled(format!("{} passed  ", pass), Style::default().fg(t.success)),
+                Span::styled(format!("{} warning  ", warn), Style::default().fg(t.warn)),
+                Span::styled(format!("{} failed", fail), Style::default().fg(t.err)),
             ]),
             Line::from(Span::styled(
                 "  ← back   → continue (warnings are non-fatal)",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(t.dim),
             )),
         ]),
         chunks[2],
     );
 }
 
-fn draw_mode_select(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_mode_select(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -505,7 +517,7 @@ fn draw_mode_select(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             "  Select a mode:",
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.text).add_modifier(Modifier::BOLD),
         )),
         chunks[0],
     );
@@ -520,9 +532,9 @@ fn draw_mode_select(frame: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = mode_defs.iter().enumerate().map(|(i, (name, desc))| {
         let selected = i == app.mode_cursor;
         let (fg, bg) = if selected {
-            (Color::Black, Color::Cyan)
+            (t.hi_fg, t.hi_bg)
         } else {
-            (Color::White, Color::Reset)
+            (t.text, ratatui::style::Color::Reset)
         };
         let indicator = if selected { "▶ " } else { "  " };
         ListItem::new(Line::from(vec![
@@ -532,7 +544,7 @@ fn draw_mode_select(frame: &mut Frame, app: &App, area: Rect) {
             ),
             Span::styled(
                 *desc,
-                Style::default().fg(if selected { Color::Black } else { Color::DarkGray }).bg(bg),
+                Style::default().fg(if selected { t.hi_fg } else { t.dim }).bg(bg),
             ),
         ]))
     }).collect();
@@ -541,7 +553,7 @@ fn draw_mode_select(frame: &mut Frame, app: &App, area: Rect) {
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
+                .border_style(Style::default().fg(t.primary))
                 .title(" modes "),
         ),
         chunks[1],
@@ -550,14 +562,14 @@ fn draw_mode_select(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             "  ↑/↓: select   Enter / →: confirm   ← back",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         )),
         chunks[2],
     );
 }
 
 #[allow(unused_assignments)]
-fn build_option_items(app: &App, mode: &Mode) -> Vec<ListItem<'static>> {
+fn build_option_items(app: &App, mode: &Mode, t: &Theme) -> Vec<ListItem<'static>> {
     let mut items: Vec<ListItem<'static>> = Vec::new();
     let mut idx = 0usize;
 
@@ -565,9 +577,9 @@ fn build_option_items(app: &App, mode: &Mode) -> Vec<ListItem<'static>> {
         ($flag:expr, $val:expr) => {{
             let focused = app.opt_cursor == idx;
             let style = if focused {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default().fg(t.primary).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(t.text)
             };
             let indicator = if focused { "▶ " } else { "  " };
             items.push(ListItem::new(Line::from(vec![Span::styled(
@@ -596,7 +608,7 @@ fn build_option_items(app: &App, mode: &Mode) -> Vec<ListItem<'static>> {
     items
 }
 
-fn draw_options(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_options(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let mode = match &app.selected_mode {
         Some(m) => m,
         None    => return,
@@ -616,19 +628,19 @@ fn draw_options(frame: &mut Frame, app: &App, area: Rect) {
         Paragraph::new(Line::from(vec![
             Span::styled(
                 "  Options for mode: ",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default().fg(t.text).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(mode.as_str(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(mode.as_str(), Style::default().fg(t.primary).add_modifier(Modifier::BOLD)),
         ])),
         chunks[0],
     );
 
-    let items = build_option_items(app, mode);
+    let items = build_option_items(app, mode, t);
     frame.render_widget(
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
+                .border_style(Style::default().fg(t.primary))
                 .title(" options "),
         ),
         chunks[1],
@@ -638,12 +650,12 @@ fn draw_options(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             format!("  {}", cmd),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(t.secondary),
         )))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow))
+                .border_style(Style::default().fg(t.secondary))
                 .title(" command preview "),
         ),
         chunks[2],
@@ -652,13 +664,13 @@ fn draw_options(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             "  ↑/↓: move   Space: toggle / cycle model   → / Enter: continue   ← back",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         )),
         chunks[3],
     );
 }
 
-fn draw_launch(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_launch(frame: &mut Frame, app: &App, area: Rect, t: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -676,17 +688,17 @@ fn draw_launch(frame: &mut Frame, app: &App, area: Rect) {
         Paragraph::new(Line::from(vec![
             Span::styled(
                 "  ✓ Ready!  ",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                Style::default().fg(t.success).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 "Copy the command below or launch it directly.",
-                Style::default().fg(Color::White),
+                Style::default().fg(t.text),
             ),
         ]))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Green)),
+                .border_style(Style::default().fg(t.success)),
         ),
         chunks[1],
     );
@@ -695,12 +707,12 @@ fn draw_launch(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             format!("  {}", cmd),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.secondary).add_modifier(Modifier::BOLD),
         )))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow))
+                .border_style(Style::default().fg(t.secondary))
                 .title(" command "),
         ),
         chunks[2],
@@ -708,10 +720,10 @@ fn draw_launch(frame: &mut Frame, app: &App, area: Rect) {
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("[C] Copy to clipboard   ", Style::default().fg(Color::Cyan)),
-            Span::styled("[L] Launch now   ", Style::default().fg(Color::Green)),
-            Span::styled("[←] Back   ", Style::default().fg(Color::White)),
-            Span::styled("[Q] Quit", Style::default().fg(Color::DarkGray)),
+            Span::styled("[C] Copy to clipboard   ", Style::default().fg(t.primary)),
+            Span::styled("[L] Launch now   ", Style::default().fg(t.success)),
+            Span::styled("[←] Back   ", Style::default().fg(t.text)),
+            Span::styled("[Q] Quit", Style::default().fg(t.dim)),
         ])),
         chunks[4],
     );
@@ -721,7 +733,7 @@ fn draw_launch(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(
             Paragraph::new(Span::styled(
                 format!("  {}", msg),
-                Style::default().fg(if is_err { Color::Red } else { Color::Green }),
+                Style::default().fg(if is_err { t.err } else { t.success }),
             )),
             chunks[5],
         );
@@ -730,7 +742,7 @@ fn draw_launch(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             "  ← back   q: quit",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(t.dim),
         )),
         chunks[6],
     );
@@ -826,6 +838,13 @@ fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
     // Ctrl+C always quits
     if code == KeyCode::Char('c') && mods.contains(KeyModifiers::CONTROL) {
         app.quit = true;
+        return;
+    }
+
+    // t cycles theme from any page
+    if code == KeyCode::Char('t') {
+        app.theme_idx = (app.theme_idx + 1) % THEMES.len();
+        theme::save_theme_idx(app.theme_idx);
         return;
     }
 

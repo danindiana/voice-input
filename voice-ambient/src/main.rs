@@ -22,6 +22,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
+use voice_ambient::theme::{self, THEMES};
 use voice_ambient::whisper_infer;
 
 // ── Audio constants ───────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ struct App {
     last_blink: Instant,
     db_path: Option<String>,
     transcript_path: Option<String>,
+    theme_idx: usize,
 }
 
 impl App {
@@ -67,7 +69,12 @@ impl App {
             last_blink: Instant::now(),
             db_path,
             transcript_path,
+            theme_idx: theme::load_theme_idx(),
         }
+    }
+
+    fn theme(&self) -> &'static voice_ambient::theme::Theme {
+        &THEMES[self.theme_idx]
     }
 
     fn push_level(&mut self, rms: f64) {
@@ -313,32 +320,34 @@ fn ui(frame: &mut Frame, app: &App) {
 }
 
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
+    let t = app.theme();
     let (rec, rec_color) = if app.blink {
-        ("● REC", Color::Red)
+        ("● REC", t.rec_on)
     } else {
-        ("○ REC", Color::DarkGray)
+        ("○ REC", t.dim)
     };
     let line = Line::from(vec![
         Span::styled(rec, Style::default().fg(rec_color).add_modifier(Modifier::BOLD)),
         Span::raw("  "),
         Span::styled(
             "voice-input : ambient",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.primary).add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(app.elapsed_str(), Style::default().fg(Color::White)),
+        Span::styled(app.elapsed_str(), Style::default().fg(t.text)),
     ]);
     frame.render_widget(
         Paragraph::new(line).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_style(Style::default().fg(t.primary)),
         ),
         area,
     );
 }
 
 fn draw_audio(frame: &mut Frame, app: &App, area: Rect) {
+    let t = app.theme();
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(2), Constraint::Length(2)])
@@ -352,10 +361,11 @@ fn draw_audio(frame: &mut Frame, app: &App, area: Rect) {
                     .title(" waveform "),
             )
             .data(&app.level_history)
-            .style(Style::default().fg(Color::Green)),
+            .style(Style::default().fg(t.success)),
         rows[0],
     );
 
+    // Gauge colors remain semantic (green=low, yellow=medium, red=high audio level)
     let pct = (app.current_rms * 100.0).min(100.0) as u16;
     let bar_color = if pct > 75 {
         Color::Red
@@ -374,6 +384,7 @@ fn draw_audio(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
+    let t = app.theme();
     let height = area.height.saturating_sub(2) as usize;
     let now = Instant::now();
 
@@ -385,16 +396,17 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
         .rev()
         .map(|u| {
             let age = now.duration_since(u.born).as_secs();
+            // Newest text uses theme primary, aging through text → gray → dim
             let color = match age {
-                0..=4   => Color::Cyan,
-                5..=19  => Color::White,
+                0..=4   => t.primary,
+                5..=19  => t.text,
                 20..=59 => Color::Gray,
-                _       => Color::DarkGray,
+                _       => t.dim,
             };
             ListItem::new(Line::from(vec![
                 Span::styled(
                     format!("{} ", u.timestamp),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(t.dim),
                 ),
                 Span::styled(u.text.as_str(), Style::default().fg(color)),
             ]))
@@ -405,7 +417,7 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
         List::new(items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
+                .border_style(Style::default().fg(t.primary))
                 .title(" transcript "),
         ),
         area,
@@ -413,12 +425,13 @@ fn draw_transcript(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
+    let t = app.theme();
     let db_span = match &app.db_path {
         Some(p) => Span::styled(
             format!("DB: {}  ", p),
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(t.primary),
         ),
-        None => Span::styled("DB: off  ", Style::default().fg(Color::DarkGray)),
+        None => Span::styled("DB: off  ", Style::default().fg(t.dim)),
     };
     let save_span = match &app.transcript_path {
         Some(p) => {
@@ -426,28 +439,31 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(p.as_str());
-            Span::styled(format!("SAVE: {}  ", name), Style::default().fg(Color::Green))
+            Span::styled(format!("SAVE: {}  ", name), Style::default().fg(t.success))
         }
-        None => Span::styled("SAVE: off  ", Style::default().fg(Color::DarkGray)),
+        None => Span::styled("SAVE: off  ", Style::default().fg(t.dim)),
     };
     let line = Line::from(vec![
-        Span::styled(app.status_msg.as_str(), Style::default().fg(Color::Green)),
+        Span::styled(app.status_msg.as_str(), Style::default().fg(t.success)),
         Span::raw("  │  "),
         Span::styled(
             format!("words: {}  utt: {}", app.word_count, app.utt_count),
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(t.secondary),
         ),
         Span::raw("  │  "),
         db_span,
         Span::raw("  │  "),
         save_span,
-        Span::styled("  q / Ctrl-C to stop", Style::default().fg(Color::DarkGray)),
+        Span::styled("  t: [", Style::default().fg(t.dim)),
+        Span::styled(t.name, Style::default().fg(t.primary).add_modifier(Modifier::BOLD)),
+        Span::styled("]  ", Style::default().fg(t.dim)),
+        Span::styled("q / Ctrl-C: stop", Style::default().fg(t.dim)),
     ]);
     frame.render_widget(
         Paragraph::new(line).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
+                .border_style(Style::default().fg(t.primary)),
         ),
         area,
     );
@@ -532,6 +548,10 @@ fn main() -> io::Result<()> {
                     (KeyCode::Char('q'), _)
                     | (KeyCode::Esc, _)
                     | (KeyCode::Char('c'), KeyModifiers::CONTROL) => break,
+                    (KeyCode::Char('t'), _) => {
+                        app.theme_idx = (app.theme_idx + 1) % THEMES.len();
+                        theme::save_theme_idx(app.theme_idx);
+                    }
                     _ => {}
                 }
             }

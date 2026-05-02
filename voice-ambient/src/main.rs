@@ -135,16 +135,16 @@ fn now_iso() -> String {
 // ── Whisper inference thread ──────────────────────────────────────────────────
 
 fn spawn_whisper(
-    model_path: String,
+    model_name: String,
     chunk_rx: std::sync::mpsc::Receiver<Vec<i16>>,
     tx: Sender<Update>,
     db_path: Option<String>,
     transcript_path: Option<String>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        let _ = tx.send(Update::Status(format!("Loading whisper model: {}", model_path)));
+        let _ = tx.send(Update::Status(format!("Loading whisper model: {}", model_name)));
 
-        let ctx = whisper_infer::load_ctx(&model_path);
+        let ctx = whisper_infer::load_ctx_with_fallback(&model_name);
         let _ = tx.send(Update::Status("Recording".to_string()));
 
         let conn = db_path.as_deref().and_then(|p| open_db(p).ok());
@@ -470,13 +470,6 @@ fn main() -> io::Result<()> {
         .or_else(|| std::env::var("VOICE_WHISPER_MODEL").ok())
         .unwrap_or_else(|| "large-v3".to_string());
 
-    let model_path = get_arg("--model-path")
-        .unwrap_or_else(|| {
-            whisper_infer::default_model_path(&model_name)
-                .to_string_lossy()
-                .into_owned()
-        });
-
     let transcript_path: Option<String> = if no_save {
         None
     } else {
@@ -495,7 +488,7 @@ fn main() -> io::Result<()> {
 
     // ── Whisper inference thread ──────────────────────────────────────────────
     let whisper_handle = spawn_whisper(
-        model_path,
+        model_name,
         chunk_rx,
         tx.clone(),
         db_path.clone(),

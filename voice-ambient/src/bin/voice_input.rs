@@ -98,8 +98,11 @@ fn main() {
 
     eprintln!("[voice-input] Transcribing ({} samples at {} Hz)…", samples.len(), SAMPLE_RATE);
 
-    let model_path = args.resolved_model_path();
-    let ctx = whisper_infer::load_ctx(model_path.to_str().unwrap_or(""));
+    let ctx = if args.model_path.is_some() {
+        whisper_infer::load_ctx(args.resolved_model_path().to_str().unwrap_or(""))
+    } else {
+        whisper_infer::load_ctx_with_fallback(&args.model)
+    };
 
     let text = whisper_infer::transcribe_i16(&ctx, &samples)
         .unwrap_or_default();

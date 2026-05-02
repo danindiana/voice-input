@@ -13,6 +13,21 @@ const VAD_RMS_THRESHOLD: f32 = 0.005;
 // large-v3 needs ~3.1 GB weights + ~700 MB buffers ≈ 3800 MB.
 const MIN_VRAM_MB: u64 = 3_800;
 
+// Approximate minimum free VRAM (MiB) required per model size.
+const MODEL_VRAM_MB: &[(&str, u64)] = &[
+    ("large-v3", 3_800),
+    ("large-v2", 3_800),
+    ("large",    3_800),
+    ("medium",   2_000),
+    ("small",      700),
+    ("base",       350),
+    ("tiny",       200),
+];
+
+// Ordered fallback chain: when VRAM is insufficient for the requested model,
+// try these smaller models in sequence before giving up and using CPU.
+const FALLBACK_CHAIN: &[&str] = &["large-v3", "medium", "small", "base"];
+
 /// Construct the default GGML model path from a model name.
 /// `"large-v3"` → `~/.cache/whisper/ggml-large-v3.bin`
 pub fn default_model_path(model_name: &str) -> PathBuf {
@@ -160,6 +175,101 @@ pub fn transcribe_i16(ctx: &WhisperContext, samples_32k: &[i16]) -> Option<Strin
 
     let text = parts.join(" ");
     if text.is_empty() { None } else { Some(text) }
+}
+
+fn vram_for_model(name: &str) -> u64 {
+    MODEL_VRAM_MB.iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, mb)| *mb)
+        .unwrap_or(MIN_VRAM_MB)
+}
+
+fn fallback_chain_from(model_name: &str) -> &'static [&'static str] {
+    let start = FALLBACK_CHAIN.iter().position(|&n| n == model_name).unwrap_or(0);
+    &FALLBACK_CHAIN[start..]
+}
+
+/// Load a WhisperContext, automatically falling back to smaller models when VRAM is tight.
+///
+/// Tries the requested model_name first; if no GPU has enough free VRAM, steps down
+/// through medium → small → base (skipping sizes not present on disk).
+/// Falls back to CPU with the first available model file as last resort.
+///
+/// Device selection and env var overrides (WHISPER_NO_GPU, WHISPER_GPU_DEVICE)
+/// behave identically to `load_ctx`.
+pub fn load_ctx_with_fallback(model_name: &str) -> WhisperContext {
+    let force_cpu = std::env::var("WHISPER_NO_GPU")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    let device_override: Option<i32> = std::env::var("WHISPER_GPU_DEVICE")
+        .ok()
+        .and_then(|s| s.parse().ok());
+
+    let devices: Vec<i32> = match device_override {
+        Some(d) => vec![d],
+        None    => vec![1, 0],
+    };
+
+    for &candidate in fallback_chain_from(model_name) {
+        let path = default_model_path(candidate);
+        if !path.exists() {
+            continue;
+        }
+        let path_str = path.to_string_lossy().into_owned();
+        let needed   = vram_for_model(candidate);
+
+        if force_cpu {
+            if candidate == model_name {
+                eprintln!("[whisper] WHISPER_NO_GPU set — loading {} on CPU", candidate);
+            } else {
+                eprintln!("[whisper] WHISPER_NO_GPU set — using {} on CPU (fell back from {})", candidate, model_name);
+            }
+            return load_cpu(&path_str);
+        }
+
+        for &dev in &devices {
+            match free_vram_mb(dev) {
+                Some(free) if free >= needed => {
+                    eprintln!("[whisper] GPU {} has {} MiB free (need {} for {})", dev, free, needed, candidate);
+                    let mut params = WhisperContextParameters::default();
+                    params.use_gpu(true);
+                    params.gpu_device(dev);
+                    match WhisperContext::new_with_params(&path_str, params) {
+                        Ok(ctx) => {
+                            if candidate != model_name {
+                                eprintln!("[whisper] loaded {} on GPU {} (fell back from {})", candidate, dev, model_name);
+                            } else {
+                                eprintln!("[whisper] loaded {} on GPU {}", candidate, dev);
+                            }
+                            return ctx;
+                        }
+                        Err(e) => eprintln!("[whisper] GPU {} failed for {}: {}", dev, candidate, e),
+                    }
+                }
+                Some(free) => eprintln!(
+                    "[whisper] GPU {} has {} MiB free (need {} for {}), skipping",
+                    dev, free, needed, candidate
+                ),
+                None => eprintln!("[whisper] could not query VRAM for GPU {}", dev),
+            }
+        }
+    }
+
+    // Last resort: CPU with first available model file in fallback chain
+    for &candidate in fallback_chain_from(model_name) {
+        let path = default_model_path(candidate);
+        if path.exists() {
+            eprintln!("[whisper] all GPU options exhausted — loading {} on CPU", candidate);
+            if candidate != model_name {
+                eprintln!("[whisper] (fell back from {})", model_name);
+            }
+            return load_cpu(&path.to_string_lossy().into_owned());
+        }
+    }
+
+    eprintln!("[whisper] no model file found for {} or any fallback", model_name);
+    load_cpu(&default_model_path(model_name).to_string_lossy().into_owned())
 }
 
 /// Resample 32 kHz mono i16 → 16 kHz mono f32 using sinc interpolation.

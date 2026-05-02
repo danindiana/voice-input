@@ -15,6 +15,10 @@ path = "src/bin/audio_test.rs"
 name = "voice-input"
 path = "src/bin/voice_input.rs"
 
+[[bin]]
+name = "voice-wizard"
+path = "src/bin/voice_wizard.rs"
+
 [dependencies]
 # TUI (existing)
 ratatui    = "0.28"

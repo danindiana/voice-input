@@ -103,16 +103,25 @@ impl App {
 
 // ── quiet_stderr ──────────────────────────────────────────────────────────────
 
+// RAII guard: restores stderr fd 2 even if the closure panics or early-returns.
+struct StderrRestorer(libc::c_int);
+impl Drop for StderrRestorer {
+    fn drop(&mut self) {
+        unsafe {
+            libc::dup2(self.0, 2);
+            libc::close(self.0);
+        }
+    }
+}
+
 fn quiet_stderr<F: FnOnce() -> T, T>(f: F) -> T {
     unsafe {
         let null = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_WRONLY);
         let saved = libc::dup(2);
         libc::dup2(null, 2);
         libc::close(null);
-        let r = f();
-        libc::dup2(saved, 2);
-        libc::close(saved);
-        r
+        let _guard = StderrRestorer(saved); // restores stderr on drop, even on panic
+        f()
     }
 }
 
@@ -153,31 +162,38 @@ fn run_checks() -> Vec<CheckResult> {
         results.push(CheckResult { label: "Whisper model", status, detail });
     }
 
-    // 3. Audio device
+    // 3. Audio device — wrapped in catch_unwind so a cpal/ALSA panic never crashes the wizard
     {
-        let found = quiet_stderr(|| {
-            let host = cpal::default_host();
-            host.input_devices()
-                .ok()
-                .and_then(|mut devs| {
-                    devs.find(|d| {
-                        d.name()
-                            .map(|n| n.to_lowercase().contains("pipewire"))
-                            .unwrap_or(false)
+        use std::panic::AssertUnwindSafe;
+
+        let found: Option<String> = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            quiet_stderr(|| {
+                let host = cpal::default_host();
+                host.input_devices()
+                    .ok()
+                    .and_then(|mut devs| {
+                        devs.find(|d| {
+                            d.name()
+                                .map(|n| n.to_lowercase().contains("pipewire"))
+                                .unwrap_or(false)
+                        })
                     })
-                })
-                .map(|d| d.name().unwrap_or_default())
-        });
+                    .map(|d| d.name().unwrap_or_default())
+            })
+        }))
+        .unwrap_or(None);
+
         let (status, detail) = if let Some(name) = found {
             (CheckStatus::Pass, format!("found: \"{}\"", name))
         } else {
-            let any = quiet_stderr(|| {
-                cpal::default_host().default_input_device().is_some()
-            });
+            let any = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                quiet_stderr(|| cpal::default_host().default_input_device().is_some())
+            }))
+            .unwrap_or(false);
             if any {
                 (CheckStatus::Warn, "pipewire not found; will use default input device".to_string())
             } else {
-                (CheckStatus::Fail, "no audio input devices found".to_string())
+                (CheckStatus::Warn, "could not enumerate audio devices (check PipeWire/ALSA)".to_string())
             }
         };
         results.push(CheckResult { label: "Audio device", status, detail });
@@ -860,17 +876,33 @@ fn main() -> io::Result<()> {
     // Run checks before raw mode so any cpal/libc stderr goes to the terminal cleanly
     let checks = run_checks();
 
-    // Restore terminal on panic
+    // Restore terminal on panic — also log to /tmp so silent exits are diagnosable
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = disable_raw_mode();
         let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true).append(true)
+            .open("/tmp/voice-wizard.log")
+        {
+            use io::Write;
+            let _ = writeln!(f, "[panic] {}", info);
+        }
         original_hook(info);
     }));
 
-    enable_raw_mode()?;
+    // Attempt to enter raw mode — fail loudly with a hint if stdout is not a TTY
+    if let Err(e) = enable_raw_mode() {
+        eprintln!("voice-wizard: could not enter raw mode: {}", e);
+        eprintln!("  (must be run in an interactive terminal, not piped/backgrounded)");
+        std::process::exit(1);
+    }
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    if let Err(e) = execute!(stdout, EnterAlternateScreen) {
+        let _ = disable_raw_mode();
+        eprintln!("voice-wizard: could not open alternate screen: {}", e);
+        std::process::exit(1);
+    }
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
     let mut app = App::new(checks);

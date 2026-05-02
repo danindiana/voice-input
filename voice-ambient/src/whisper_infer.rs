@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::Command;
 
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
@@ -8,6 +9,10 @@ use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextPar
 // Chunks below this energy level are assumed silent and skipped.
 const VAD_RMS_THRESHOLD: f32 = 0.005;
 
+// Minimum free VRAM (MiB) required to attempt GPU inference.
+// large-v3 needs ~3.1 GB weights + ~700 MB buffers ≈ 3800 MB.
+const MIN_VRAM_MB: u64 = 3_800;
+
 /// Construct the default GGML model path from a model name.
 /// `"large-v3"` → `~/.cache/whisper/ggml-large-v3.bin`
 pub fn default_model_path(model_name: &str) -> PathBuf {
@@ -15,17 +20,104 @@ pub fn default_model_path(model_name: &str) -> PathBuf {
     PathBuf::from(format!("{}/.cache/whisper/ggml-{}.bin", home, model_name))
 }
 
+/// Query free VRAM for a specific CUDA device index via nvidia-smi.
+/// Returns None if nvidia-smi is unavailable or the query fails.
+fn free_vram_mb(device: i32) -> Option<u64> {
+    let out = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=memory.free",
+            "--format=csv,noheader,nounits",
+            &format!("--id={}", device),
+        ])
+        .output()
+        .ok()?;
+    String::from_utf8(out.stdout)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
 /// Load a WhisperContext from a GGML .bin file.
-/// Tries GPU first; falls back to CPU on failure.
+///
+/// Device selection (in priority order):
+///   1. `WHISPER_NO_GPU=1`       → CPU only, no GPU attempted
+///   2. `WHISPER_GPU_DEVICE=N`   → try device N, then CPU
+///   3. Default                  → try device 1 (RTX 3080 SM 8.6) first,
+///                                  then device 0, then CPU
+///
+/// Device 1 is preferred because device 0 is an RTX 5080 (SM 12.0 / Blackwell)
+/// and the current whisper.cpp build may not yet include SM 12.0 kernels —
+/// that combination produces `abort()` at first inference. Device 1 (RTX 3080,
+/// SM 8.6) is confirmed working with the current build.
+/// Rebuild with CMAKE_CUDA_ARCHITECTURES=86;120 to enable both GPUs.
+///
+/// VRAM check: if the target device has less than MIN_VRAM_MB free, GPU is
+/// skipped and CPU is used instead to avoid OOM mid-inference.
 pub fn load_ctx(model_path: &str) -> WhisperContext {
-    let mut params = WhisperContextParameters::default();
-    params.use_gpu(true);
-    WhisperContext::new_with_params(model_path, params).unwrap_or_else(|e| {
-        eprintln!("[whisper] GPU init failed ({e}), falling back to CPU");
-        let mut p = WhisperContextParameters::default();
-        p.use_gpu(false);
-        WhisperContext::new_with_params(model_path, p).expect("failed to load whisper model on CPU")
-    })
+    let force_cpu = std::env::var("WHISPER_NO_GPU")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if force_cpu {
+        eprintln!("[whisper] WHISPER_NO_GPU set — loading on CPU");
+        return load_cpu(model_path);
+    }
+
+    let device_override: Option<i32> = std::env::var("WHISPER_GPU_DEVICE")
+        .ok()
+        .and_then(|s| s.parse().ok());
+
+    // Devices to try in order.
+    let devices: Vec<i32> = match device_override {
+        Some(d) => vec![d],
+        None    => vec![1, 0],  // RTX 3080 first, then RTX 5080
+    };
+
+    for dev in devices {
+        // VRAM gate — skip devices that can't fit the model.
+        match free_vram_mb(dev) {
+            Some(free) if free < MIN_VRAM_MB => {
+                eprintln!(
+                    "[whisper] GPU device {} has only {} MiB free (need {}), skipping",
+                    dev, free, MIN_VRAM_MB
+                );
+                continue;
+            }
+            None => {
+                eprintln!("[whisper] could not query VRAM for device {}, skipping", dev);
+                continue;
+            }
+            Some(free) => {
+                eprintln!("[whisper] GPU device {} has {} MiB free — attempting load", dev, free);
+            }
+        }
+
+        let mut params = WhisperContextParameters::default();
+        params.use_gpu(true);
+        params.gpu_device(dev);
+
+        match WhisperContext::new_with_params(model_path, params) {
+            Ok(ctx) => {
+                eprintln!("[whisper] loaded on GPU device {}", dev);
+                return ctx;
+            }
+            Err(e) => {
+                eprintln!("[whisper] GPU device {} load failed: {}", dev, e);
+            }
+        }
+    }
+
+    eprintln!("[whisper] all GPU options exhausted — falling back to CPU");
+    load_cpu(model_path)
+}
+
+fn load_cpu(model_path: &str) -> WhisperContext {
+    eprintln!("[whisper] loading on CPU (this will be slow for large-v3)");
+    let mut p = WhisperContextParameters::default();
+    p.use_gpu(false);
+    WhisperContext::new_with_params(model_path, p)
+        .expect("failed to load whisper model on CPU")
 }
 
 /// Transcribe a buffer of 32 kHz mono i16 samples.

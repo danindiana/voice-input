@@ -1,6 +1,12 @@
 [env]
 # whisper-rs-sys build: use CUDA 13.0 nvcc for whisper.cpp cmake
 CMAKE_CUDA_COMPILER = "/usr/local/cuda-13.0/bin/nvcc"
+# Target both GPUs on this machine:
+#   SM 8.6 = RTX 3080 (Ampere)   — confirmed working
+#   SM 12.0 = RTX 5080 (Blackwell) — requires CUDA 13+ and ggml Blackwell support
+# After changing this, run: cargo clean && cargo build --release
+# (full whisper.cpp C++ recompile, takes ~20 min)
+CMAKE_CUDA_ARCHITECTURES = "86;120"
 
 [target.x86_64-unknown-linux-gnu]
 # linker needs to find libcublas/libcudart/libculibos in CUDA 13.0

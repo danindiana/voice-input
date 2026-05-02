@@ -4,10 +4,26 @@
 
 B='\033[1m'; C='\033[0;36m'; G='\033[0;32m'
 Y='\033[1;33m'; R='\033[0;31m'; D='\033[2m'; Z='\033[0m'
+BC='\033[1;36m'; BY='\033[1;33m'; BG='\033[1;32m'
 
-# ── header ────────────────────────────────────────────────────────────────────
+# ── banner ─────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${B}${C}  🎙  voice-input${Z}  ${D}push-to-talk speech-to-text · whisper-rs CUDA · ratatui TUI${Z}"
+echo -e "${BC}██╗   ██╗ ██████╗ ██╗ ██████╗███████╗${Z}"
+echo -e "${BC}██║   ██║██╔═══██╗██║██╔════╝██╔════╝${Z}"
+echo -e "${BC}██║   ██║██║   ██║██║██║     █████╗  ${Z}"
+echo -e "${BC}╚██╗ ██╔╝██║   ██║██║██║     ██╔══╝  ${Z}"
+echo -e "${BC} ╚████╔╝ ╚██████╔╝██║╚██████╗███████╗${Z}"
+echo -e "${BC}  ╚═══╝   ╚═════╝ ╚═╝ ╚═════╝╚══════╝${Z}"
+echo -e "${BY}██╗███╗   ██╗██████╗ ██╗   ██╗████████╗${Z}"
+echo -e "${BY}██║████╗  ██║██╔══██╗██║   ██║╚══██╔══╝${Z}"
+echo -e "${BY}██║██╔██╗ ██║██████╔╝██║   ██║   ██║   ${Z}"
+echo -e "${BY}██║██║╚██╗██║██╔═══╝ ██║   ██║   ██║   ${Z}"
+echo -e "${BY}██║██║ ╚████║██║     ╚██████╔╝   ██║   ${Z}"
+echo -e "${BY}╚═╝╚═╝  ╚═══╝╚═╝      ╚═════╝   ╚═╝   ${Z}"
+echo -e "${D}  speak  ▸  whisper.cpp + cuda  ▸  type  ·  pure rust · no python${Z}"
+echo ""
+
+# ── git info ───────────────────────────────────────────────────────────────────
 echo -e "  ${D}$(git -C "$(dirname "${BASH_SOURCE[0]}")" log -1 --format='branch: %D  ·  last commit: %h %s' 2>/dev/null)${Z}"
 echo ""
 
@@ -16,7 +32,7 @@ for bin in voice-input voice-ambient voice-wizard; do
     path=$(command -v "$bin" 2>/dev/null)
     if [[ -n "$path" && -x "$path" ]]; then
         real=$(readlink -f "$path" 2>/dev/null)
-        echo -e "  ${G}[OK]${Z}  ${B}${bin}${Z}  ${D}→ ${real}${Z}"
+        echo -e "  ${BG}[OK]${Z}  ${B}${bin}${Z}  ${D}→ ${real}${Z}"
     else
         echo -e "  ${R}[!!]${Z}  ${B}${bin}${Z}  ${Y}not in PATH — rebuild? cargo build --release${Z}"
     fi
@@ -28,7 +44,7 @@ echo ""
 MODEL="$HOME/.cache/whisper/ggml-large-v3.bin"
 if [[ -f "$MODEL" ]]; then
     SIZE=$(du -sh "$MODEL" 2>/dev/null | awk '{print $1}')
-    echo -e "  ${G}[OK]${Z}  ${B}ggml-large-v3.bin${Z}  ${D}${SIZE}  ${MODEL}${Z}"
+    echo -e "  ${BG}[OK]${Z}  ${B}ggml-large-v3.bin${Z}  ${D}${SIZE}  ${MODEL}${Z}"
 else
     echo -e "  ${R}[!!]${Z}  ${B}ggml-large-v3.bin${Z}  ${Y}missing — transcription will fail${Z}"
     echo -e "        ${D}expected: ${MODEL}${Z}"
@@ -37,7 +53,7 @@ fi
 # ── UC03 mic ──────────────────────────────────────────────────────────────────
 MIC="alsa_input.usb-UC03_UC03-00.mono-fallback"
 if pactl list sources short 2>/dev/null | grep -q "$MIC"; then
-    echo -e "  ${G}[OK]${Z}  ${B}UC03 mic${Z}  ${D}PipeWire source present${Z}"
+    echo -e "  ${BG}[OK]${Z}  ${B}UC03 mic${Z}  ${D}PipeWire source present${Z}"
 else
     echo -e "  ${Y}[--]${Z}  ${B}UC03 mic${Z}  ${D}not detected (headset unplugged?)${Z}"
 fi

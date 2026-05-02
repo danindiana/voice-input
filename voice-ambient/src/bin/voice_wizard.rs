@@ -12,7 +12,7 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
@@ -65,6 +65,17 @@ struct CheckResult {
 }
 
 const MODELS: &[&str] = &["large-v3", "large-v2", "medium", "small", "base"];
+
+// ANSI Shadow block-character art for the wizard Welcome banner.
+const BANNER_VOICE: &[&str] = &[
+    "██╗   ██╗ ██████╗ ██╗ ██████╗███████╗",
+    "██║   ██║██╔═══██╗██║██╔════╝██╔════╝",
+    "██║   ██║██║   ██║██║██║     █████╗  ",
+    "╚██╗ ██╔╝██║   ██║██║██║     ██╔══╝  ",
+    " ╚████╔╝ ╚██████╔╝██║╚██████╗███████╗",
+    "  ╚═══╝   ╚═════╝ ╚═╝ ╚═════╝╚══════╝",
+];
+const BANNER_TAG: &str = "  speak  ▸  whisper.cpp + cuda  ▸  type  ·  pure rust";
 
 struct App {
     page: Page,
@@ -357,37 +368,34 @@ fn draw_global_footer(frame: &mut Frame, area: Rect, app: &App, t: &Theme) {
 }
 
 fn draw_welcome(frame: &mut Frame, area: Rect, t: &Theme) {
+    // Banner block = 6 art lines + 1 tagline line + 2 border = 9 rows
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),
+            Constraint::Length(9),
             Constraint::Min(1),
             Constraint::Length(2),
         ])
         .split(area);
 
+    // Build art lines — primary color for the block chars, secondary for the tagline
+    let mut art_lines: Vec<Line> = BANNER_VOICE
+        .iter()
+        .map(|l| Line::from(Span::styled(*l, Style::default().fg(t.primary).add_modifier(Modifier::BOLD))))
+        .collect();
+    art_lines.push(Line::from(Span::styled(
+        BANNER_TAG,
+        Style::default().fg(t.secondary),
+    )));
+
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                "  voice-input  ·  setup wizard",
-                Style::default().fg(t.primary).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  Push-to-talk speech recognition for Linux terminals.",
-                Style::default().fg(t.text),
-            )),
-            Line::from(Span::styled(
-                "  Powered by whisper-rs (whisper.cpp) with CUDA GPU acceleration.",
-                Style::default().fg(t.dim),
-            )),
-        ])
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(t.primary))
-                .title(" voice-input wizard "),
-        ),
+        Paragraph::new(art_lines)
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(t.primary)),
+            ),
         chunks[0],
     );
 
